@@ -12,13 +12,22 @@ import (
 )
 
 type fetchRegionsOpts struct {
-	tidb_host         string
-	tidb_port         int
-	tiflash_http_port int
-	user              string
-	password          string
-	db_name           string
-	table_name        string
+	tidbHost        string
+	tidbPort        int
+	tiflashHttpPort int
+	user            string
+	password        string
+	dbName          string
+	tableName       string
+}
+
+type AnyCmdOpts struct {
+	tidbHost        string
+	tidbPort        int
+	tiflashHttpPort int
+	user            string
+	password        string
+	flashCmd        string
 }
 
 func newDispatchCmd() *cobra.Command {
@@ -34,49 +43,72 @@ func newDispatchCmd() *cobra.Command {
 	}
 
 	/// Fetch Regions info for a table from all TiFlash instances
-	var opt fetchRegionsOpts
-	getRegionCmd := &cobra.Command{
-		Use:   "fetch_region",
-		Short: "Fetch Regions info for each TiFlash server",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return dumpTiFlashRegionInfo(opt)
-		},
-	}
-	// Flags for "fetch region"
-	getRegionCmd.Flags().StringVar(&opt.tidb_host, "tidb_ip", "127.0.0.1", "A TiDB instance IP")
-	getRegionCmd.Flags().IntVar(&opt.tidb_port, "tidb_port", 4000, "The port of TiDB instance")
-	// getRegionCmd.Flags().IntVar(&tidb_status_port, "tidb_status_port", 10080, "The status port of TiDB instance")
-	getRegionCmd.Flags().IntVar(&opt.tiflash_http_port, "tiflash_http_port", 8123, "The port of TiFlash instance")
-	getRegionCmd.Flags().StringVar(&opt.user, "user", "root", "TiDB user")
-	getRegionCmd.Flags().StringVar(&opt.password, "password", "", "TiDB user password")
+	newGetRegionCmd := func() *cobra.Command {
+		var opt fetchRegionsOpts
+		getRegionCmd := &cobra.Command{
+			Use:   "fetch_region",
+			Short: "Fetch Regions info for each TiFlash server",
+			RunE: func(cmd *cobra.Command, args []string) error {
+				return dumpTiFlashRegionInfo(opt)
+			},
+		}
+		// Flags for "fetch region"
+		getRegionCmd.Flags().StringVar(&opt.tidbHost, "tidb_ip", "127.0.0.1", "A TiDB instance IP")
+		getRegionCmd.Flags().IntVar(&opt.tidbPort, "tidb_port", 4000, "The port of TiDB instance")
+		// getRegionCmd.Flags().IntVar(&tidb_status_port, "tidb_status_port", 10080, "The status port of TiDB instance")
+		getRegionCmd.Flags().IntVar(&opt.tiflashHttpPort, "tiflash_http_port", 8123, "The port of TiFlash instance")
+		getRegionCmd.Flags().StringVar(&opt.user, "user", "root", "TiDB user")
+		getRegionCmd.Flags().StringVar(&opt.password, "password", "", "TiDB user password")
 
-	getRegionCmd.Flags().StringVar(&opt.db_name, "database", "", "The database name of query table")
-	getRegionCmd.Flags().StringVar(&opt.table_name, "table", "", "The table name of query table")
+		getRegionCmd.Flags().StringVar(&opt.dbName, "database", "", "The database name of query table")
+		getRegionCmd.Flags().StringVar(&opt.tableName, "table", "", "The table name of query table")
+		return getRegionCmd
+	}
 
 	/// TODO: Apply delta merge for a table for all TiFlash instances
 
-	cmd.AddCommand(getRegionCmd)
+	newAnyCmd := func() *cobra.Command {
+		var opt AnyCmdOpts
+		anyCmd := &cobra.Command{
+			Use:   "any",
+			Short: "Any command",
+			RunE: func(cmd *cobra.Command, args []string) error {
+				return execAnyTiFlashCmd(opt)
+			},
+		}
+		// Flags for "fetch region"
+		anyCmd.Flags().StringVar(&opt.tidbHost, "tidb_ip", "127.0.0.1", "A TiDB instance IP")
+		anyCmd.Flags().IntVar(&opt.tidbPort, "tidb_port", 4000, "The port of TiDB instance")
+		anyCmd.Flags().IntVar(&opt.tiflashHttpPort, "tiflash_http_port", 8123, "The port of TiFlash instance")
+		anyCmd.Flags().StringVar(&opt.user, "user", "root", "TiDB user")
+		anyCmd.Flags().StringVar(&opt.password, "password", "", "TiDB user password")
+
+		anyCmd.Flags().StringVar(&opt.flashCmd, "cmd", "", "The command executed in all TiFlash")
+		return anyCmd
+	}
+
+	cmd.AddCommand(newGetRegionCmd(), newAnyCmd())
 
 	return cmd
 }
 
-func getInstances(db *sql.DB, select_types string) []string {
-	rows, err := db.Query("select TYPE,INSTANCE,STATUS_ADDRESS from information_schema.cluster_info where TYPE=?", select_types)
+func getInstances(db *sql.DB, selectTypes string) []string {
+	rows, err := db.Query("select TYPE,INSTANCE,STATUS_ADDRESS from information_schema.cluster_info where TYPE=?", selectTypes)
 	if err != nil {
 		panic(err)
 	}
 	var (
-		instance_type string
-		instance      string
-		status_addr   string
+		instanceType string
+		instance     string
+		statusAddr   string
 
-		ret_instances []string
+		retInstances []string
 	)
 	for rows.Next() {
-		rows.Scan(&instance_type, &instance, &status_addr)
-		ret_instances = append(ret_instances, instance)
+		rows.Scan(&instanceType, &instance, &statusAddr)
+		retInstances = append(retInstances, instance)
 	}
-	return ret_instances
+	return retInstances
 }
 
 func getIPs(instances []string) []string {
@@ -88,9 +120,9 @@ func getIPs(instances []string) []string {
 	return IPs
 }
 
-func curlTiFlash(ip string, http_port int, query string) error {
-	req_body_reader := strings.NewReader(query)
-	resp, err := http.Post(fmt.Sprintf("http://%s:%d/post", ip, http_port), "text/html", req_body_reader)
+func curlTiFlash(ip string, httpPort int, query string) error {
+	reqBodyReader := strings.NewReader(query)
+	resp, err := http.Post(fmt.Sprintf("http://%s:%d/post", ip, httpPort), "text/html", reqBodyReader)
 	if err != nil {
 		return err
 	}
@@ -104,26 +136,48 @@ func curlTiFlash(ip string, http_port int, query string) error {
 }
 
 func dumpTiFlashRegionInfo(opts fetchRegionsOpts) error {
-	if opts.db_name == "" || opts.table_name == "" {
+	if opts.dbName == "" || opts.tableName == "" {
 		return fmt.Errorf("should set the database name and table name for running")
 	}
 
-	conn_cmd := fmt.Sprintf("%s:%s@tcp(%s:%d)/?charset=utf8", opts.user, opts.password, opts.tidb_host, opts.tidb_port)
-	db, err := sql.Open("mysql", conn_cmd)
+	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/?charset=utf8", opts.user, opts.password, opts.tidbHost, opts.tidbPort)
+	db, err := sql.Open("mysql", dsn)
 	if err != nil {
 		return fmt.Errorf("connect to database fail: %s", err)
 	}
 	defer db.Close()
-	fmt.Println("Connect to database succ: ", conn_cmd)
+	fmt.Println("Connect to database succ: ", dsn)
 
 	instances := getInstances(db, "tiflash")
 	ips := getIPs(instances)
 
-	table_id := getTableID(db, opts.db_name, opts.table_name)
+	tableID := getTableID(db, opts.dbName, opts.tableName)
 	for _, ip := range ips {
-		fmt.Printf("TiFlash ip: %s table: `%s`.`%s` table_id: %d; Dumping Regions of table\n", ip, opts.db_name, opts.table_name, table_id)
-		err = curlTiFlash(ip, opts.tiflash_http_port, fmt.Sprintf("DBGInvoke dump_all_region(%d)", table_id))
+		fmt.Printf("TiFlash ip: %s:%d table: `%s`.`%s` table_id: %d; Dumping Regions of table\n", ip, opts.tiflashHttpPort, opts.dbName, opts.tableName, tableID)
+		err = curlTiFlash(ip, opts.tiflashHttpPort, fmt.Sprintf("DBGInvoke dump_all_region(%d)", tableID))
 		fmt.Printf("err: %v", err)
 	}
+	return nil
+}
+
+func execAnyTiFlashCmd(opts AnyCmdOpts) error {
+	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/?charset=utf8", opts.user, opts.password, opts.tidbHost, opts.tidbPort)
+	db, err := sql.Open("mysql", dsn)
+	if err != nil {
+		return fmt.Errorf("connect to database fail: %s", err)
+	}
+	defer db.Close()
+	fmt.Println("Connect to database succ: ", dsn)
+
+	instances := getInstances(db, "tiflash")
+	ips := getIPs(instances)
+
+	for _, ip := range ips {
+		fmt.Printf("TiFlash ip: %s:%d\n", ip, opts.tiflashHttpPort)
+		if err = curlTiFlash(ip, opts.tiflashHttpPort, opts.flashCmd); err != nil {
+			fmt.Printf("err: %v\n", err)
+		}
+	}
+
 	return nil
 }
