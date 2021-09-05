@@ -88,17 +88,19 @@ func getIPs(instances []string) []string {
 	return IPs
 }
 
-func curlTiFlash(ip string, http_port int, query string) {
+func curlTiFlash(ip string, http_port int, query string) error {
 	req_body_reader := strings.NewReader(query)
 	resp, err := http.Post(fmt.Sprintf("http://%s:%d/post", ip, http_port), "text/html", req_body_reader)
 	if err != nil {
-		panic(err)
+		return err
 	}
+	defer resp.Body.Close()
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		panic(err)
+		return err
 	}
 	fmt.Println(string(body))
+	return nil
 }
 
 func dumpTiFlashRegionInfo(opts fetchRegionsOpts) error {
@@ -120,7 +122,8 @@ func dumpTiFlashRegionInfo(opts fetchRegionsOpts) error {
 	table_id := getTableID(db, opts.db_name, opts.table_name)
 	for _, ip := range ips {
 		fmt.Printf("TiFlash ip: %s table: `%s`.`%s` table_id: %d; Dumping Regions of table\n", ip, opts.db_name, opts.table_name, table_id)
-		curlTiFlash(ip, opts.tiflash_http_port, fmt.Sprintf("DBGInvoke dump_all_region(%d)", table_id))
+		err = curlTiFlash(ip, opts.tiflash_http_port, fmt.Sprintf("DBGInvoke dump_all_region(%d)", table_id))
+		fmt.Printf("err: %v", err)
 	}
 	return nil
 }

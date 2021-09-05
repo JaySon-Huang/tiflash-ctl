@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/JaySon-Huang/tiflash-cli/cmd"
+	"github.com/JaySon-Huang/tiflash-ctl/cmd"
 )
 
 func main() {
