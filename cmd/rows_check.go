@@ -238,18 +238,16 @@ func getInitQueryRange(db *sql.DB, opts checkRowsOpts) []QueryRange {
 }
 
 func CheckRows(opts checkRowsOpts) error {
-	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/?charset=utf8", opts.user, opts.password, opts.tidbHost, opts.tidbPort)
-	db, err := sql.Open("mysql", dsn)
+	client, err := tidb.NewClient(opts.tidbHost, int32(opts.tidbPort), opts.user, opts.password)
 	if err != nil {
-		return fmt.Errorf("connect to database fail: %s", err)
+		return err
 	}
-	defer db.Close()
-	fmt.Println("Connect to database succ: ", dsn)
+	defer client.Close()
 
-	execSQL(db, "set tidb_allow_batch_cop = 0")
-	execSQL(db, "set tidb_allow_mpp = 0")
+	execSQL(client.Db, "set tidb_allow_batch_cop = 0")
+	execSQL(client.Db, "set tidb_allow_mpp = 0")
 
-	queryRanges := getInitQueryRange(db, opts)
+	queryRanges := getInitQueryRange(client.Db, opts)
 	fmt.Printf("Init query ranges: %s\n", queryRanges)
 
 	var (
@@ -261,7 +259,7 @@ func CheckRows(opts checkRowsOpts) error {
 		min, max := queryRanges[0].min, queryRanges[0].max
 		queryRanges = queryRanges[1:]
 
-		if !haveConsistNumOfRows(db, opts.dbName, opts.tableName, curRange, opts.numReplica) {
+		if !haveConsistNumOfRows(client.Db, opts.dbName, opts.tableName, curRange, opts.numReplica) {
 			queryRanges = nil
 			mid := min + (max-min)/2
 			if mid > min && mid < max {
@@ -279,14 +277,14 @@ func CheckRows(opts checkRowsOpts) error {
 	}
 
 	fmt.Printf("\n========\nChecking the rows of Region\n")
-	pdInstances := getPDInstances(db)
+	pdInstances := client.GetInstances("pd")
 	pdClient := pd.NewPDClient(pdInstances[0]) // FIXME: can not get instances
 
-	tableID := getTableID(db, opts.dbName, opts.tableName)
+	tableID := client.GetTableID(opts.dbName, opts.tableName)
 	checkKey := tidb.NewTableRowAsKey(tableID, curRange.min)
 	fmt.Printf("table id: %d, min: %s\n", tableID, checkKey.GetPDKey())
 
-	err = checkRowsByKey(db, opts, &pdClient, checkKey)
+	err = checkRowsByKey(client.Db, opts, &pdClient, checkKey)
 
 	return err
 }
