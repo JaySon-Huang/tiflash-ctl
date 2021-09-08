@@ -35,10 +35,7 @@ func newDispatchCmd() *cobra.Command {
 		Use:   "dispatch",
 		Short: "Dispatch some actions for each TiFlash server",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			switch len(args) {
-			default:
-				return cmd.Help()
-			}
+			return cmd.Help()
 		},
 	}
 

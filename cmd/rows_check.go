@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"database/sql"
 	"fmt"
+	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/JaySon-Huang/tiflash-ctl/pkg/pd"
 	"github.com/JaySon-Huang/tiflash-ctl/pkg/tidb"
+	"github.com/olekukonko/tablewriter"
 
 	"github.com/spf13/cobra"
 )
@@ -25,27 +28,73 @@ type checkRowsOpts struct {
 	queryUpperBound int64
 }
 
+type checkDistributionOpts struct {
+	tidbHost  string
+	tidbPort  int
+	user      string
+	password  string
+	dbName    string
+	tableName string
+	dryRun    bool
+}
+
 func newCheckCmd() *cobra.Command {
-	var opt checkRowsOpts
 	cmd := &cobra.Command{
 		Use:   "check",
-		Short: "Check the consistent betweeen TiKV && TiFlash",
+		Short: "Check the consistency betweeen TiKV && TiFlash",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return CheckRows(opt)
+			return cmd.Help()
 		},
 	}
-	// Flags for "check"
-	cmd.Flags().StringVar(&opt.tidbHost, "tidb_ip", "127.0.0.1", "A TiDB Instance IP")
-	cmd.Flags().IntVar(&opt.tidbPort, "tidb_port", 4000, "The port of TiDB instance")
-	cmd.Flags().StringVar(&opt.user, "user", "root", "TiDB user")
-	cmd.Flags().StringVar(&opt.password, "password", "", "TiDB user password")
 
-	cmd.Flags().StringVar(&opt.dbName, "database", "", "The database name of query table")
-	cmd.Flags().StringVar(&opt.tableName, "table", "", "The table name of query table")
-	cmd.Flags().IntVar(&opt.numReplica, "num_replica", 2, "The number of TiFlash replica for the query table")
+	newRowConsistencyCmd := func() *cobra.Command {
+		var opt checkRowsOpts
+		c := &cobra.Command{
+			Use:   "consistency",
+			Short: "Check the consistency betweeen TiKV && TiFlash",
+			RunE: func(cmd *cobra.Command, args []string) error {
+				return CheckRows(opt)
+			},
+		}
 
-	cmd.Flags().Int64Var(&opt.queryLowerBound, "lower_bound", 0, "The lower bound of query")
-	cmd.Flags().Int64Var(&opt.queryUpperBound, "upper_bound", 0, "The upper bound of query")
+		// Flags for "consistency"
+		c.Flags().StringVar(&opt.tidbHost, "tidb_ip", "127.0.0.1", "A TiDB Instance IP")
+		c.Flags().IntVar(&opt.tidbPort, "tidb_port", 4000, "The port of TiDB instance")
+		c.Flags().StringVar(&opt.user, "user", "root", "TiDB user")
+		c.Flags().StringVar(&opt.password, "password", "", "TiDB user password")
+
+		c.Flags().StringVar(&opt.dbName, "database", "", "The database name of query table")
+		c.Flags().StringVar(&opt.tableName, "table", "", "The table name of query table")
+		c.Flags().IntVar(&opt.numReplica, "num_replica", 2, "The number of TiFlash replica for the query table")
+
+		c.Flags().Int64Var(&opt.queryLowerBound, "lower_bound", 0, "The lower bound of query")
+		c.Flags().Int64Var(&opt.queryUpperBound, "upper_bound", 0, "The upper bound of query")
+		return c
+	}
+
+	newDistributionCmd := func() *cobra.Command {
+		var opt checkDistributionOpts
+		c := &cobra.Command{
+			Use:   "dist",
+			Short: "Check the Region distribution of a table",
+			RunE: func(cmd *cobra.Command, args []string) error {
+				return CheckDistribution(cmd, opt)
+			},
+		}
+		// Flags for "consistency"
+		c.Flags().StringVar(&opt.tidbHost, "tidb_ip", "127.0.0.1", "A TiDB Instance IP")
+		c.Flags().IntVar(&opt.tidbPort, "tidb_port", 4000, "The port of TiDB instance")
+		c.Flags().StringVar(&opt.user, "user", "root", "TiDB user")
+		c.Flags().StringVar(&opt.password, "password", "", "TiDB user password")
+
+		c.Flags().StringVar(&opt.dbName, "database", "", "The database name of query table")
+		c.Flags().StringVar(&opt.tableName, "table", "", "The table name of query table")
+
+		c.Flags().BoolVar(&opt.dryRun, "dry", false, "Only print the distribution query text")
+		return c
+	}
+
+	cmd.AddCommand(newRowConsistencyCmd(), newDistributionCmd())
 
 	return cmd
 }
@@ -319,5 +368,140 @@ func checkRowsByKey(db *sql.DB, opts checkRowsOpts, pdClient *pd.Client, key tid
 			return err
 		}
 	}
+	return nil
+}
+
+func getDistQuery(database, table string) string {
+	return fmt.Sprintf(`select c.type, a.store_id, a.address, a.db_name, a.table_name, a.is_leader, a.cnt 
+from (
+	select r.db_name, r.table_name, r.store_id, s.address, r.is_leader, count(*) as cnt
+	from (
+		select s.region_id, s.db_name, s.table_name, p.store_id, p.is_leader, p.status 
+		from
+			information_schema.tikv_region_status s,
+			information_schema.tikv_region_peers p
+		where 1=1
+			and db_name ='%s' and table_name='%s'
+			and s.region_id = p.region_id
+		order by p.store_id
+		) as r,
+		information_schema.tikv_store_status s
+	where r.store_id=s.store_id
+	group by
+		r.db_name, r.table_name, r.store_id, r.is_leader, s.address
+) a, information_schema.cluster_info c
+where c.instance = a.address
+order by c.type desc, a.store_id;`, database, table)
+}
+
+type Distribution struct {
+	storeType  string
+	storeId    int64
+	address    string
+	dbName     string
+	tableName  string
+	isLeader   bool
+	numRegions int64
+}
+
+func (d *Distribution) toRow(avg float32) []string {
+	s := make([]string, 0)
+	s = append(s, d.storeType)
+	s = append(s, strconv.FormatInt(d.storeId, 10))
+	s = append(s, d.address)
+	s = append(s, strconv.FormatBool(d.isLeader))
+	s = append(s, strconv.FormatInt(d.numRegions, 10))
+	diff := (float32(d.numRegions) - avg) / avg * 100
+	s = append(s, fmt.Sprintf("%6.2f%%", diff))
+
+	return s
+}
+
+func execGetDist(db *sql.DB, database, table string) ([]Distribution, error) {
+	sql := getDistQuery(database, table)
+	rows, err := db.Query(sql)
+	if err != nil {
+		return nil, err
+	}
+	var dists []Distribution
+	var dist Distribution
+	for rows.Next() {
+		rows.Scan(&dist.storeType, &dist.storeId, &dist.address, &dist.dbName, &dist.tableName, &dist.isLeader, &dist.numRegions)
+		dists = append(dists, dist)
+	}
+	return dists, nil
+}
+
+func getDistAvg(dists []Distribution) (float32, float32, float32) {
+	var (
+		sumTiKVFollower float32 = 0.0
+		sumTiKVLeader   float32 = 0.0
+		sumTiFlashALL   float32 = 0.0
+		numTiKVFollower int32   = 0
+		numTiKVLeader   int32   = 0
+		numTiFlashALL   int32   = 0
+	)
+	for _, dist := range dists {
+		switch dist.storeType {
+		case "tikv":
+			if dist.isLeader {
+				numTiKVLeader += 1
+				sumTiKVLeader += float32(dist.numRegions)
+			} else {
+				numTiKVFollower += 1
+				sumTiKVFollower += float32(dist.numRegions)
+			}
+		case "tiflash":
+			numTiFlashALL += 1
+			sumTiFlashALL += float32(dist.numRegions)
+		}
+	}
+	return sumTiKVLeader / float32(numTiKVLeader),
+		sumTiKVFollower / float32(numTiKVFollower),
+		sumTiFlashALL / float32(numTiFlashALL)
+}
+
+func CheckDistribution(cmd *cobra.Command, opts checkDistributionOpts) error {
+	if len(opts.dbName) == 0 || len(opts.tableName) == 0 {
+		fmt.Println("You must set the database and table name")
+		return cmd.Help()
+	}
+
+	if opts.dryRun {
+		sql := getDistQuery(opts.dbName, opts.tableName)
+		fmt.Println(strings.ReplaceAll(strings.ReplaceAll(sql, "\t", ""), "\n", " "))
+		return nil
+	}
+
+	client, err := tidb.NewClient(opts.tidbHost, int32(opts.tidbPort), opts.user, opts.password)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
+	dists, err := execGetDist(client.Db, opts.dbName, opts.tableName)
+	if err != nil {
+		return err
+	}
+
+	// fmt.Printf("%+v", dists)
+	avgTiKVLeaderRegions, avgTiKVFollowerRegions, avgTiFlashRegions := getDistAvg(dists)
+
+	table := tablewriter.NewWriter(os.Stdout)
+	table.SetHeader([]string{"store type", "store id", "address", "is leader", "num regions", "diff per"})
+
+	for _, v := range dists {
+		if v.storeType == "tikv" {
+			if v.isLeader {
+				table.Append(v.toRow(avgTiKVLeaderRegions))
+			} else {
+				table.Append(v.toRow(avgTiKVFollowerRegions))
+			}
+		} else if v.storeType == "tiflash" {
+			table.Append(v.toRow(avgTiFlashRegions))
+		}
+	}
+	table.Render() // Send output
+
 	return nil
 }
