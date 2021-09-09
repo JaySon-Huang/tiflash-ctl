@@ -41,7 +41,7 @@ type checkDistributionOpts struct {
 func newCheckCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "check",
-		Short: "Check the consistency betweeen TiKV && TiFlash",
+		Short: "Some troubleshooting tools for TiFlash",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmd.Help()
 		},

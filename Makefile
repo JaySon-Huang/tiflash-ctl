@@ -14,4 +14,4 @@ FILES     := $$(find . -name "*.go")
 .PHONY: default
 
 default:
-	$(GOBUILD) -o bin/tiflash-cli
+	$(GOBUILD) -o bin/tiflash-ctl
