@@ -42,7 +42,7 @@ func newDispatchCmd() *cobra.Command {
 	/// Fetch Regions info for a table from all TiFlash instances
 	newGetRegionCmd := func() *cobra.Command {
 		var opt fetchRegionsOpts
-		getRegionCmd := &cobra.Command{
+		c := &cobra.Command{
 			Use:   "fetch_region",
 			Short: "Fetch Regions info for each TiFlash server",
 			RunE: func(cmd *cobra.Command, args []string) error {
@@ -50,22 +50,22 @@ func newDispatchCmd() *cobra.Command {
 			},
 		}
 		// Flags for "fetch region"
-		getRegionCmd.Flags().StringVar(&opt.tidbHost, "tidb_ip", "127.0.0.1", "A TiDB instance IP")
-		getRegionCmd.Flags().IntVar(&opt.tidbPort, "tidb_port", 4000, "The port of TiDB instance")
-		getRegionCmd.Flags().IntVar(&opt.tiflashHttpPort, "tiflash_http_port", 8123, "The port of TiFlash instance")
-		getRegionCmd.Flags().StringVar(&opt.user, "user", "root", "TiDB user")
-		getRegionCmd.Flags().StringVar(&opt.password, "password", "", "TiDB user password")
+		c.Flags().StringVar(&opt.tidbHost, "tidb_ip", "127.0.0.1", "A TiDB instance IP")
+		c.Flags().IntVar(&opt.tidbPort, "tidb_port", 4000, "The port of TiDB instance")
+		c.Flags().IntVar(&opt.tiflashHttpPort, "tiflash_http_port", 8123, "The port of TiFlash instance")
+		c.Flags().StringVar(&opt.user, "user", "root", "TiDB user")
+		c.Flags().StringVar(&opt.password, "password", "", "TiDB user password")
 
-		getRegionCmd.Flags().StringVar(&opt.dbName, "database", "", "The database name of query table")
-		getRegionCmd.Flags().StringVar(&opt.tableName, "table", "", "The table name of query table")
-		return getRegionCmd
+		c.Flags().StringVar(&opt.dbName, "database", "", "The database name of query table")
+		c.Flags().StringVar(&opt.tableName, "table", "", "The table name of query table")
+		return c
 	}
 
 	/// TODO: Apply delta merge for a table for all TiFlash instances
 
 	newExecCmd := func() *cobra.Command {
 		var opt AnyCmdOpts
-		execCmd := &cobra.Command{
+		c := &cobra.Command{
 			Use:   "exec",
 			Short: "Exec command",
 			RunE: func(cmd *cobra.Command, args []string) error {
@@ -73,14 +73,14 @@ func newDispatchCmd() *cobra.Command {
 			},
 		}
 		// Flags for "fetch region"
-		execCmd.Flags().StringVar(&opt.tidbHost, "tidb_ip", "127.0.0.1", "A TiDB instance IP")
-		execCmd.Flags().IntVar(&opt.tidbPort, "tidb_port", 4000, "The port of TiDB instance")
-		execCmd.Flags().IntVar(&opt.tiflashHttpPort, "tiflash_http_port", 8123, "The port of TiFlash instance")
-		execCmd.Flags().StringVar(&opt.user, "user", "root", "TiDB user")
-		execCmd.Flags().StringVar(&opt.password, "password", "", "TiDB user password")
+		c.Flags().StringVar(&opt.tidbHost, "tidb_ip", "127.0.0.1", "A TiDB instance IP")
+		c.Flags().IntVar(&opt.tidbPort, "tidb_port", 4000, "The port of TiDB instance")
+		c.Flags().IntVar(&opt.tiflashHttpPort, "tiflash_http_port", 8123, "The port of TiFlash instance")
+		c.Flags().StringVar(&opt.user, "user", "root", "TiDB user")
+		c.Flags().StringVar(&opt.password, "password", "", "TiDB user password")
 
-		execCmd.Flags().StringVar(&opt.flashCmd, "cmd", "", "The command executed in all TiFlash")
-		return execCmd
+		c.Flags().StringVar(&opt.flashCmd, "cmd", "", "The command executed in all TiFlash")
+		return c
 	}
 
 	cmd.AddCommand(newGetRegionCmd(), newExecCmd())
