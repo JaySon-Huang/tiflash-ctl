@@ -141,8 +141,9 @@ func dumpTiFlashRegionInfo(opts FetchRegionsOpts) error {
 	for _, ip := range ips {
 		fmt.Printf("TiFlash ip: %s:%d table: `%s`.`%s` table_id: %d; Dumping Regions of table\n", ip, opts.tiflashHttpPort, opts.dbName, opts.tableName, tableID)
 		// TODO: Find a way to get http port
-		err = curlTiFlash(ip, opts.tiflashHttpPort, fmt.Sprintf("DBGInvoke dump_all_region(%d)", tableID))
-		fmt.Printf("err: %v", err)
+		if err = curlTiFlash(ip, opts.tiflashHttpPort, fmt.Sprintf("DBGInvoke dump_all_region(%d)", tableID)); err != nil {
+			fmt.Printf("err: %v", err)
+		}
 	}
 	return nil
 }
@@ -164,8 +165,9 @@ func compactDataCmd(opts CompactTableOpts) error {
 	for _, ip := range ips {
 		fmt.Printf("TiFlash ip: %s:%d table: `%s`.`%s` table_id: %d; Dumping Regions of table\n", ip, opts.tiflashHttpPort, opts.dbName, opts.tableName, tableID)
 		// TODO: Find a way to get http port
-		err = curlTiFlash(ip, opts.tiflashHttpPort, fmt.Sprintf("manage table `%d`.`%d` merge delta", databaseID, tableID))
-		fmt.Printf("err: %v", err)
+		if err = curlTiFlash(ip, opts.tiflashHttpPort, fmt.Sprintf("manage table `%d`.`%d` merge delta", databaseID, tableID)); err != nil {
+			fmt.Printf("err: %v", err)
+		}
 	}
 
 	return nil
