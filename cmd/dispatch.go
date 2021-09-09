@@ -11,22 +11,16 @@ import (
 	"github.com/spf13/cobra"
 )
 
-type fetchRegionsOpts struct {
-	tidbHost        string
-	tidbPort        int
+type FetchRegionsOpts struct {
+	tidb            tidb.TiDBClientOpts
 	tiflashHttpPort int
-	user            string
-	password        string
 	dbName          string
 	tableName       string
 }
 
-type AnyCmdOpts struct {
-	tidbHost        string
-	tidbPort        int
+type ExecCmdOpts struct {
+	tidb            tidb.TiDBClientOpts
 	tiflashHttpPort int
-	user            string
-	password        string
 	flashCmd        string
 }
 
@@ -41,7 +35,7 @@ func newDispatchCmd() *cobra.Command {
 
 	/// Fetch Regions info for a table from all TiFlash instances
 	newGetRegionCmd := func() *cobra.Command {
-		var opt fetchRegionsOpts
+		var opt FetchRegionsOpts
 		c := &cobra.Command{
 			Use:   "fetch_region",
 			Short: "Fetch Regions info for each TiFlash server",
@@ -50,11 +44,8 @@ func newDispatchCmd() *cobra.Command {
 			},
 		}
 		// Flags for "fetch region"
-		c.Flags().StringVar(&opt.tidbHost, "tidb_ip", "127.0.0.1", "A TiDB instance IP")
-		c.Flags().IntVar(&opt.tidbPort, "tidb_port", 4000, "The port of TiDB instance")
+		addTiDBConnFlags(c, &opt.tidb)
 		c.Flags().IntVar(&opt.tiflashHttpPort, "tiflash_http_port", 8123, "The port of TiFlash instance")
-		c.Flags().StringVar(&opt.user, "user", "root", "TiDB user")
-		c.Flags().StringVar(&opt.password, "password", "", "TiDB user password")
 
 		c.Flags().StringVar(&opt.dbName, "database", "", "The database name of query table")
 		c.Flags().StringVar(&opt.tableName, "table", "", "The table name of query table")
@@ -64,7 +55,7 @@ func newDispatchCmd() *cobra.Command {
 	/// TODO: Apply delta merge for a table for all TiFlash instances
 
 	newExecCmd := func() *cobra.Command {
-		var opt AnyCmdOpts
+		var opt ExecCmdOpts
 		c := &cobra.Command{
 			Use:   "exec",
 			Short: "Exec command",
@@ -73,11 +64,8 @@ func newDispatchCmd() *cobra.Command {
 			},
 		}
 		// Flags for "fetch region"
-		c.Flags().StringVar(&opt.tidbHost, "tidb_ip", "127.0.0.1", "A TiDB instance IP")
-		c.Flags().IntVar(&opt.tidbPort, "tidb_port", 4000, "The port of TiDB instance")
+		addTiDBConnFlags(c, &opt.tidb)
 		c.Flags().IntVar(&opt.tiflashHttpPort, "tiflash_http_port", 8123, "The port of TiFlash instance")
-		c.Flags().StringVar(&opt.user, "user", "root", "TiDB user")
-		c.Flags().StringVar(&opt.password, "password", "", "TiDB user password")
 
 		c.Flags().StringVar(&opt.flashCmd, "cmd", "", "The command executed in all TiFlash")
 		return c
@@ -112,12 +100,12 @@ func curlTiFlash(ip string, httpPort int, query string) error {
 	return nil
 }
 
-func dumpTiFlashRegionInfo(opts fetchRegionsOpts) error {
+func dumpTiFlashRegionInfo(opts FetchRegionsOpts) error {
 	if opts.dbName == "" || opts.tableName == "" {
 		return fmt.Errorf("should set the database name and table name for running")
 	}
 
-	client, err := tidb.NewClient(opts.tidbHost, int32(opts.tidbPort), opts.user, opts.password)
+	client, err := tidb.NewClientFromOpts(opts.tidb)
 	if err != nil {
 		return err
 	}
@@ -135,8 +123,8 @@ func dumpTiFlashRegionInfo(opts fetchRegionsOpts) error {
 	return nil
 }
 
-func execTiFlashCmd(opts AnyCmdOpts) error {
-	client, err := tidb.NewClient(opts.tidbHost, int32(opts.tidbPort), opts.user, opts.password)
+func execTiFlashCmd(opts ExecCmdOpts) error {
+	client, err := tidb.NewClientFromOpts(opts.tidb)
 	if err != nil {
 		return err
 	}

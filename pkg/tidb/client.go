@@ -7,8 +7,19 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 )
 
+type TiDBClientOpts struct {
+	Host     string
+	Port     int32
+	User     string
+	Password string
+}
+
 type Client struct {
-	Db *sql.DB
+	Db *sql.DB // TODO: Maybe find a way not exposing it to public?
+}
+
+func NewClientFromOpts(opts TiDBClientOpts) (Client, error) {
+	return NewClient(opts.Host, int32(opts.Port), opts.User, opts.Password)
 }
 
 func NewClient(host string, port int32, user, password string) (Client, error) {
@@ -24,8 +35,8 @@ func (c *Client) Close() error {
 	return c.Db.Close()
 }
 
-func (c *Client) GetTableID(db_name, tbl_name string) int64 {
-	rows, err := c.Db.Query("select TABLE_ID from information_schema.tiflash_replica where TABLE_SCHEMA = ? and TABLE_NAME = ?", db_name, tbl_name)
+func (c *Client) GetTableID(dbName, tblName string) int64 {
+	rows, err := c.Db.Query("select TABLE_ID from information_schema.tiflash_replica where TABLE_SCHEMA = ? and TABLE_NAME = ?", dbName, tblName)
 	if err != nil {
 		panic(err)
 	}

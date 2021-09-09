@@ -16,11 +16,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
-type checkRowsOpts struct {
-	tidbHost        string
-	tidbPort        int
-	user            string
-	password        string
+type CheckRowsOpts struct {
+	tidb            tidb.TiDBClientOpts
 	dbName          string
 	tableName       string
 	numReplica      int
@@ -28,11 +25,8 @@ type checkRowsOpts struct {
 	queryUpperBound int64
 }
 
-type checkDistributionOpts struct {
-	tidbHost  string
-	tidbPort  int
-	user      string
-	password  string
+type CheckDistributionOpts struct {
+	tidb      tidb.TiDBClientOpts
 	dbName    string
 	tableName string
 	dryRun    bool
@@ -48,7 +42,7 @@ func newCheckCmd() *cobra.Command {
 	}
 
 	newRowConsistencyCmd := func() *cobra.Command {
-		var opt checkRowsOpts
+		var opt CheckRowsOpts
 		c := &cobra.Command{
 			Use:   "consistency",
 			Short: "Check the consistency betweeen TiKV && TiFlash",
@@ -58,10 +52,7 @@ func newCheckCmd() *cobra.Command {
 		}
 
 		// Flags for "consistency"
-		c.Flags().StringVar(&opt.tidbHost, "tidb_ip", "127.0.0.1", "A TiDB Instance IP")
-		c.Flags().IntVar(&opt.tidbPort, "tidb_port", 4000, "The port of TiDB instance")
-		c.Flags().StringVar(&opt.user, "user", "root", "TiDB user")
-		c.Flags().StringVar(&opt.password, "password", "", "TiDB user password")
+		addTiDBConnFlags(c, &opt.tidb)
 
 		c.Flags().StringVar(&opt.dbName, "database", "", "The database name of query table")
 		c.Flags().StringVar(&opt.tableName, "table", "", "The table name of query table")
@@ -73,7 +64,7 @@ func newCheckCmd() *cobra.Command {
 	}
 
 	newDistributionCmd := func() *cobra.Command {
-		var opt checkDistributionOpts
+		var opt CheckDistributionOpts
 		c := &cobra.Command{
 			Use:   "dist",
 			Short: "Check the Region distribution of a table",
@@ -81,11 +72,8 @@ func newCheckCmd() *cobra.Command {
 				return CheckDistribution(cmd, opt)
 			},
 		}
-		// Flags for "consistency"
-		c.Flags().StringVar(&opt.tidbHost, "tidb_ip", "127.0.0.1", "A TiDB Instance IP")
-		c.Flags().IntVar(&opt.tidbPort, "tidb_port", 4000, "The port of TiDB instance")
-		c.Flags().StringVar(&opt.user, "user", "root", "TiDB user")
-		c.Flags().StringVar(&opt.password, "password", "", "TiDB user password")
+		// Flags for "dist"
+		addTiDBConnFlags(c, &opt.tidb)
 
 		c.Flags().StringVar(&opt.dbName, "database", "", "The database name of query table")
 		c.Flags().StringVar(&opt.tableName, "table", "", "The table name of query table")
@@ -260,7 +248,7 @@ func haveConsistNumOfRows(db *sql.DB, database, table string, queryRange QueryRa
 	return numRowsTiKV == numRowsTiFlash
 }
 
-func getInitQueryRange(db *sql.DB, opts checkRowsOpts) []QueryRange {
+func getInitQueryRange(db *sql.DB, opts CheckRowsOpts) []QueryRange {
 	var queryRanges []QueryRange
 	if opts.queryLowerBound == 0 && opts.queryUpperBound == 0 {
 		tikvMinID, tikvMaxID := getMinMaxTiDBRowID(db, opts.dbName, opts.tableName, "tikv")
@@ -286,8 +274,8 @@ func getInitQueryRange(db *sql.DB, opts checkRowsOpts) []QueryRange {
 	return queryRanges
 }
 
-func CheckRows(opts checkRowsOpts) error {
-	client, err := tidb.NewClient(opts.tidbHost, int32(opts.tidbPort), opts.user, opts.password)
+func CheckRows(opts CheckRowsOpts) error {
+	client, err := tidb.NewClientFromOpts(opts.tidb)
 	if err != nil {
 		return err
 	}
@@ -338,7 +326,7 @@ func CheckRows(opts checkRowsOpts) error {
 	return err
 }
 
-func checkRowsByKey(db *sql.DB, opts checkRowsOpts, pdClient *pd.Client, key tidb.TiKVKey) error {
+func checkRowsByKey(db *sql.DB, opts CheckRowsOpts, pdClient *pd.Client, key tidb.TiKVKey) error {
 	numSuccess := 0
 	for {
 		region, err := pdClient.GetRegionByKey(key)
@@ -461,7 +449,7 @@ func getDistAvg(dists []Distribution) (float32, float32, float32) {
 		sumTiFlashALL / float32(numTiFlashALL)
 }
 
-func CheckDistribution(cmd *cobra.Command, opts checkDistributionOpts) error {
+func CheckDistribution(cmd *cobra.Command, opts CheckDistributionOpts) error {
 	if len(opts.dbName) == 0 || len(opts.tableName) == 0 {
 		fmt.Println("You must set the database and table name")
 		return cmd.Help()
@@ -473,7 +461,7 @@ func CheckDistribution(cmd *cobra.Command, opts checkDistributionOpts) error {
 		return nil
 	}
 
-	client, err := tidb.NewClient(opts.tidbHost, int32(opts.tidbPort), opts.user, opts.password)
+	client, err := tidb.NewClientFromOpts(opts.tidb)
 	if err != nil {
 		return err
 	}
