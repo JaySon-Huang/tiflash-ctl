@@ -18,6 +18,13 @@ type FetchRegionsOpts struct {
 	tableName       string
 }
 
+type CompactTableOpts struct {
+	tidb            tidb.TiDBClientOpts
+	tiflashHttpPort int
+	dbName          string
+	tableName       string
+}
+
 type ExecCmdOpts struct {
 	tidb            tidb.TiDBClientOpts
 	tiflashHttpPort int
@@ -52,7 +59,23 @@ func newDispatchCmd() *cobra.Command {
 		return c
 	}
 
-	/// TODO: Apply delta merge for a table for all TiFlash instances
+	// Apply data compaction (delta merge) for a table for all TiFlash instances
+	newCompactCmd := func() *cobra.Command {
+		var opt CompactTableOpts
+		c := &cobra.Command{
+			Use:   "compact",
+			Short: "Compact data (delta-merge) on TiFlash servers",
+			RunE: func(cmd *cobra.Command, args []string) error {
+				return compactDataCmd(opt)
+			},
+		}
+		options.AddTiDBConnFlags(c, &opt.tidb)
+		c.Flags().IntVar(&opt.tiflashHttpPort, "tiflash_http_port", 8123, "The port of TiFlash instance")
+
+		c.Flags().StringVar(&opt.dbName, "database", "", "The database name of query table")
+		c.Flags().StringVar(&opt.tableName, "table", "", "The table name of query table")
+		return c
+	}
 
 	newExecCmd := func() *cobra.Command {
 		var opt ExecCmdOpts
@@ -71,7 +94,7 @@ func newDispatchCmd() *cobra.Command {
 		return c
 	}
 
-	cmd.AddCommand(newGetRegionCmd(), newExecCmd())
+	cmd.AddCommand(newGetRegionCmd(), newCompactCmd(), newExecCmd())
 
 	return cmd
 }
@@ -121,6 +144,30 @@ func dumpTiFlashRegionInfo(opts FetchRegionsOpts) error {
 		err = curlTiFlash(ip, opts.tiflashHttpPort, fmt.Sprintf("DBGInvoke dump_all_region(%d)", tableID))
 		fmt.Printf("err: %v", err)
 	}
+	return nil
+}
+
+func compactDataCmd(opts CompactTableOpts) error {
+	if opts.dbName == "" || opts.tableName == "" {
+		return fmt.Errorf("should set the database name and table name for running")
+	}
+
+	client, err := tidb.NewClientFromOpts(opts.tidb)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
+	ips := getTiFlashIPs(&client)
+	databaseID := 0 // FIXME: get the id of database
+	tableID := client.GetTableID(opts.dbName, opts.tableName)
+	for _, ip := range ips {
+		fmt.Printf("TiFlash ip: %s:%d table: `%s`.`%s` table_id: %d; Dumping Regions of table\n", ip, opts.tiflashHttpPort, opts.dbName, opts.tableName, tableID)
+		// TODO: Find a way to get http port
+		err = curlTiFlash(ip, opts.tiflashHttpPort, fmt.Sprintf("manage table `%d`.`%d` merge delta", databaseID, tableID))
+		fmt.Printf("err: %v", err)
+	}
+
 	return nil
 }
 
