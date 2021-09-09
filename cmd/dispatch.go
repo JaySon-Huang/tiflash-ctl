@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/JaySon-Huang/tiflash-ctl/pkg/options"
 	"github.com/JaySon-Huang/tiflash-ctl/pkg/tidb"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/spf13/cobra"
@@ -44,7 +45,7 @@ func newDispatchCmd() *cobra.Command {
 			},
 		}
 		// Flags for "fetch region"
-		addTiDBConnFlags(c, &opt.tidb)
+		options.AddTiDBConnFlags(c, &opt.tidb)
 		c.Flags().IntVar(&opt.tiflashHttpPort, "tiflash_http_port", 8123, "The port of TiFlash instance")
 
 		c.Flags().StringVar(&opt.dbName, "database", "", "The database name of query table")
@@ -64,7 +65,7 @@ func newDispatchCmd() *cobra.Command {
 			},
 		}
 		// Flags for "fetch region"
-		addTiDBConnFlags(c, &opt.tidb)
+		options.AddTiDBConnFlags(c, &opt.tidb)
 		c.Flags().IntVar(&opt.tiflashHttpPort, "tiflash_http_port", 8123, "The port of TiFlash instance")
 
 		c.Flags().StringVar(&opt.flashCmd, "cmd", "", "The command executed in all TiFlash")
@@ -76,7 +77,8 @@ func newDispatchCmd() *cobra.Command {
 	return cmd
 }
 
-func getIPs(instances []string) []string {
+func getTiFlashIPs(client *tidb.Client) []string {
+	instances := client.GetInstances("tiflash")
 	var IPs []string
 	for _, s := range instances {
 		sp := strings.Split(s, ":")
@@ -111,12 +113,11 @@ func dumpTiFlashRegionInfo(opts FetchRegionsOpts) error {
 	}
 	defer client.Close()
 
-	instances := client.GetInstances("tiflash")
-	ips := getIPs(instances)
-
+	ips := getTiFlashIPs(&client)
 	tableID := client.GetTableID(opts.dbName, opts.tableName)
 	for _, ip := range ips {
 		fmt.Printf("TiFlash ip: %s:%d table: `%s`.`%s` table_id: %d; Dumping Regions of table\n", ip, opts.tiflashHttpPort, opts.dbName, opts.tableName, tableID)
+		// TODO: Find a way to get http port
 		err = curlTiFlash(ip, opts.tiflashHttpPort, fmt.Sprintf("DBGInvoke dump_all_region(%d)", tableID))
 		fmt.Printf("err: %v", err)
 	}
@@ -130,11 +131,10 @@ func execTiFlashCmd(opts ExecCmdOpts) error {
 	}
 	defer client.Close()
 
-	instances := client.GetInstances("tiflash")
-	ips := getIPs(instances)
-
+	ips := getTiFlashIPs(&client)
 	for _, ip := range ips {
 		fmt.Printf("TiFlash ip: %s:%d\n", ip, opts.tiflashHttpPort)
+		// TODO: Find a way to get http port
 		if err = curlTiFlash(ip, opts.tiflashHttpPort, opts.flashCmd); err != nil {
 			fmt.Printf("err: %v\n", err)
 		}
