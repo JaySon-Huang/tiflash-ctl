@@ -8,7 +8,6 @@ import (
 
 	"github.com/JaySon-Huang/tiflash-ctl/pkg/options"
 	"github.com/JaySon-Huang/tiflash-ctl/pkg/tidb"
-	_ "github.com/go-sql-driver/mysql"
 	"github.com/spf13/cobra"
 )
 
@@ -88,6 +87,7 @@ func getTiFlashIPs(client *tidb.Client) []string {
 }
 
 func curlTiFlash(ip string, httpPort int, query string) error {
+	// TODO: well-defined http interface that response data in JSON format is better
 	reqBodyReader := strings.NewReader(query)
 	resp, err := http.Post(fmt.Sprintf("http://%s:%d/post", ip, httpPort), "text/html", reqBodyReader)
 	if err != nil {
