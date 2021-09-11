@@ -76,14 +76,17 @@ func newDispatchCmd() *cobra.Command {
 	return cmd
 }
 
-func getTiFlashIPs(client *tidb.Client) []string {
-	instances := client.GetInstances("tiflash")
+func getTiFlashIPs(client *tidb.Client) ([]string, error) {
+	instances, err := client.GetInstances("tiflash")
+	if err != nil {
+		return nil, err
+	}
 	var IPs []string
 	for _, s := range instances {
 		sp := strings.Split(s, ":")
 		IPs = append(IPs, sp[0])
 	}
-	return IPs
+	return IPs, nil
 }
 
 func curlTiFlash(ip string, httpPort int, query string) error {
@@ -113,8 +116,14 @@ func dumpTiFlashRegionInfo(opts FetchRegionsOpts) error {
 	}
 	defer client.Close()
 
-	ips := getTiFlashIPs(&client)
-	tableID := client.GetTableID(opts.dbName, opts.tableName)
+	ips, err := getTiFlashIPs(&client)
+	if err != nil {
+		return err
+	}
+	tableID, err := client.GetTableID(opts.dbName, opts.tableName)
+	if err != nil {
+		return err
+	}
 	for _, ip := range ips {
 		fmt.Printf("TiFlash ip: %s:%d table: `%s`.`%s` table_id: %d; Dumping Regions of table\n", ip, opts.tiflashHttpPort, opts.dbName, opts.tableName, tableID)
 		// TODO: Find a way to get http port
@@ -132,7 +141,10 @@ func execTiFlashCmd(opts ExecCmdOpts) error {
 	}
 	defer client.Close()
 
-	ips := getTiFlashIPs(&client)
+	ips, err := getTiFlashIPs(&client)
+	if err != nil {
+		return err
+	}
 	for _, ip := range ips {
 		fmt.Printf("TiFlash ip: %s:%d\n", ip, opts.tiflashHttpPort)
 		// TODO: Find a way to get http port

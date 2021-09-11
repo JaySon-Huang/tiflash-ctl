@@ -3,6 +3,7 @@ package tidb
 import (
 	"database/sql"
 	"fmt"
+	"time"
 
 	_ "github.com/go-sql-driver/mysql"
 )
@@ -35,22 +36,32 @@ func (c *Client) Close() error {
 	return c.Db.Close()
 }
 
-func (c *Client) GetTableID(dbName, tblName string) int64 {
+func (c *Client) ExecWithElapsed(sql string) error {
+	defer func(start time.Time) {
+		elapsed := time.Since(start)
+		fmt.Printf("%s => %dms\n", sql, elapsed.Milliseconds())
+	}(time.Now())
+
+	_, err := c.Db.Exec(sql)
+	return err
+}
+
+func (c *Client) GetTableID(dbName, tblName string) (int64, error) {
 	rows, err := c.Db.Query("select TABLE_ID from information_schema.tiflash_replica where TABLE_SCHEMA = ? and TABLE_NAME = ?", dbName, tblName)
 	if err != nil {
-		panic(err)
+		return 0, err
 	}
 	var table_id int64
 	for rows.Next() {
 		rows.Scan(&table_id)
 	}
-	return table_id
+	return table_id, nil
 }
 
-func (c *Client) GetInstances(selectType string) []string {
+func (c *Client) GetInstances(selectType string) ([]string, error) {
 	rows, err := c.Db.Query("select INSTANCE from information_schema.cluster_info where type = ?", selectType)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 	var pdInstances []string
 	var inst string
@@ -58,5 +69,5 @@ func (c *Client) GetInstances(selectType string) []string {
 		rows.Scan(&inst)
 		pdInstances = append(pdInstances, inst)
 	}
-	return pdInstances
+	return pdInstances, nil
 }
