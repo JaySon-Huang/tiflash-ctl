@@ -7,11 +7,15 @@ endif
 
 GO       := GO111MODULE=on go
 GOBUILD  := CGO_ENABLED=0 $(GO) build
+GOTEST   := CGO_ENABLED=0 $(GO) test -p 2
 
 PACKAGES  := $$(go list ./...)
 FILES     := $$(find . -name "*.go")
 
-.PHONY: default
+.PHONY: default test
 
 default:
 	$(GOBUILD) -o bin/tiflash-ctl
+
+test:
+	$(GOTEST) -timeout 30s ./...
