@@ -37,9 +37,15 @@ func NewTableRowAsKey(tableID, rowID int64) TiKVKey {
 
 func (r *TableRow) GetKey() TiKVKey {
 	key := []byte{'t'}
-	key = codec.EncodeInt(key, r.TableID)
-	key = append(key, []byte("_r")...)
-	key = codec.EncodeInt(key, r.RowID)
+	if r.Status == MaxInf {
+		key = codec.EncodeInt(key, r.TableID+1)
+	} else {
+		key = codec.EncodeInt(key, r.TableID)
+		key = append(key, []byte("_r")...)
+		if r.Status != MinInf {
+			key = codec.EncodeInt(key, r.RowID)
+		}
+	}
 	key = codec.EncodeBytes([]byte{}, key)
 	return TiKVKey{key}
 }
