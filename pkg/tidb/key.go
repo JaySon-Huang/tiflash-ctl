@@ -31,7 +31,17 @@ func NewTableRow(tableID, rowID int64) TableRow {
 }
 
 func NewTableRowAsKey(tableID, rowID int64) TiKVKey {
-	r := TableRow{TableID: tableID, RowID: rowID}
+	r := NewTableRow(tableID, rowID)
+	return r.GetKey()
+}
+
+func NewTableStartAsKey(tableID int64) TiKVKey {
+	r := TableRow{TableID: tableID, RowID: 0, Status: MinInf}
+	return r.GetKey()
+}
+
+func NewTableEndAsKey(tableID int64) TiKVKey {
+	r := TableRow{TableID: tableID, RowID: 0, Status: MaxInf}
 	return r.GetKey()
 }
 
