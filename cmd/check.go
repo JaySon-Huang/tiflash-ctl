@@ -15,7 +15,10 @@ func newCheckCmd() *cobra.Command {
 		},
 	}
 
-	cmd.AddCommand(check.NewRowConsistencyCmd(), check.NewDistributionCmd())
+	cmd.AddCommand(
+		check.NewRowConsistencyCmd(),
+		check.NewDistributionCmd(),
+		check.NewCheckRegionBoundaryCmd())
 
 	return cmd
 }

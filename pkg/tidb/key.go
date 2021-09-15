@@ -109,3 +109,18 @@ func (k *TiKVKey) GetTableRow() (TableRow, error) {
 	}
 	return TableRow{}, fmt.Errorf("size not fit, actual is %d, %s", len(b), k.GetPDKey())
 }
+
+func (k *TiKVKey) GetTableID() (int64, error) {
+	_, b, err := codec.DecodeBytes(k.key, nil)
+	if err != nil {
+		return 0, err
+	}
+	var tableID int64
+	if len(b) < 1+8 {
+		return 0, fmt.Errorf("invalid len for decoding table id, size: %d, %s", len(b), k.GetPDKey())
+	}
+	if _, tableID, err = codec.DecodeInt(b[1:]); err != nil {
+		return 0, err
+	}
+	return tableID, nil
+}
