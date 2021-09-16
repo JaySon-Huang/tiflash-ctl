@@ -53,9 +53,13 @@ func checkBoundary(opts checkRegionBoundaryOpts) error {
 	}
 	pdClient := pd.NewPDClient(pdInstances[0]) // FIXME: can not get instances
 
-	tableID, err := client.GetTableID(opts.dbName, opts.tableName)
+	tableID, tidbPkType, err := client.GetTableIDAndClusteredIndex(opts.dbName, opts.tableName)
 	if err != nil {
 		return err
+	}
+	if tidbPkType == tidb.ClusteredIndexCommon {
+		fmt.Printf("Checking boundary on clustered index table is not supported\n")
+		return nil
 	}
 
 	startKey, endKey := tidb.NewTableStartAsKey(tableID), tidb.NewTableEndAsKey(tableID)

@@ -47,15 +47,47 @@ func (c *Client) ExecWithElapsed(sql string) error {
 }
 
 func (c *Client) GetTableID(dbName, tblName string) (int64, error) {
-	rows, err := c.Db.Query("select TABLE_ID from information_schema.tiflash_replica where TABLE_SCHEMA = ? and TABLE_NAME = ?", dbName, tblName)
+	rows, err := c.Db.Query("select TIDB_TABLE_ID from information_schema.tables where TABLE_SCHEMA = ? and TABLE_NAME = ?", dbName, tblName)
 	if err != nil {
 		return 0, err
 	}
-	var table_id int64
+	var tableID int64
 	for rows.Next() {
-		rows.Scan(&table_id)
+		rows.Scan(&tableID)
 	}
-	return table_id, nil
+	return tableID, nil
+}
+
+type ClusteredIndexType int32
+
+const (
+	ClusteredIndexInt64  ClusteredIndexType = 0
+	ClusteredIndexCommon ClusteredIndexType = 1
+)
+
+func (c *Client) GetTableIDAndClusteredIndex(dbName, tblName string) (int64, ClusteredIndexType, error) {
+	rows, err := c.Db.Query("select `TIDB_TABLE_ID`,`TIDB_PK_TYPE` from information_schema.tables where TABLE_SCHEMA = ? and TABLE_NAME = ?", dbName, tblName)
+	if err != nil {
+		return 0, ClusteredIndexInt64, err
+	}
+	var (
+		tableID    int64
+		tidbPKType string
+		indexType  ClusteredIndexType
+	)
+	for rows.Next() {
+		rows.Scan(&tableID, &tidbPKType)
+	}
+
+	switch tidbPKType {
+	case "CLUSTERED":
+		indexType = ClusteredIndexCommon
+	case "NONCLUSTERED":
+		indexType = ClusteredIndexInt64
+	default:
+		return 0, ClusteredIndexInt64, fmt.Errorf("invalid TIDB_PK_TYPE from information_schema.tables, got: %s for `%s`.`%s`", tidbPKType, dbName, tblName)
+	}
+	return tableID, indexType, nil
 }
 
 func (c *Client) GetInstances(selectType string) ([]string, error) {
