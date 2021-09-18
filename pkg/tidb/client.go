@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/go-sql-driver/mysql"
 	_ "github.com/go-sql-driver/mysql"
 )
 
@@ -67,26 +68,40 @@ const (
 
 func (c *Client) GetTableIDAndClusteredIndex(dbName, tblName string) (int64, ClusteredIndexType, error) {
 	rows, err := c.Db.Query("select `TIDB_TABLE_ID`,`TIDB_PK_TYPE` from information_schema.tables where TABLE_SCHEMA = ? and TABLE_NAME = ?", dbName, tblName)
-	if err != nil {
-		return 0, ClusteredIndexInt64, err
-	}
 	var (
-		tableID    int64
-		tidbPKType string
-		indexType  ClusteredIndexType
+		tableID   int64
+		indexType ClusteredIndexType
 	)
-	for rows.Next() {
-		rows.Scan(&tableID, &tidbPKType)
+	if err != nil {
+		if driverErr, ok := err.(*mysql.MySQLError); !ok || driverErr.Number != 1054 {
+			return 0, ClusteredIndexInt64, err
+		}
+		// Backward compatibility for TiDB v4.x that all primary key are not clustered
+		indexType = ClusteredIndexInt64
+		rows, err := c.Db.Query("select `TIDB_TABLE_ID` from information_schema.tables where TABLE_SCHEMA = ? and TABLE_NAME = ?", dbName, tblName)
+		if err != nil {
+			return 0, ClusteredIndexInt64, err
+		}
+		for rows.Next() {
+			rows.Scan(&tableID)
+		}
+	} else {
+		// For TiDB 5.x and later
+		var tidbPKType string
+		for rows.Next() {
+			rows.Scan(&tableID, &tidbPKType)
+		}
+
+		switch tidbPKType {
+		case "CLUSTERED":
+			indexType = ClusteredIndexCommon
+		case "NONCLUSTERED":
+			indexType = ClusteredIndexInt64
+		default:
+			return 0, ClusteredIndexInt64, fmt.Errorf("invalid TIDB_PK_TYPE from information_schema.tables, got: %s for `%s`.`%s`", tidbPKType, dbName, tblName)
+		}
 	}
 
-	switch tidbPKType {
-	case "CLUSTERED":
-		indexType = ClusteredIndexCommon
-	case "NONCLUSTERED":
-		indexType = ClusteredIndexInt64
-	default:
-		return 0, ClusteredIndexInt64, fmt.Errorf("invalid TIDB_PK_TYPE from information_schema.tables, got: %s for `%s`.`%s`", tidbPKType, dbName, tblName)
-	}
 	return tableID, indexType, nil
 }
 

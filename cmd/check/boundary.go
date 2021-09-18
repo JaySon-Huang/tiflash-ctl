@@ -120,6 +120,11 @@ func checkBoundary(opts checkRegionBoundaryOpts) error {
 				invalidBoundaryRegions[region.StartKey] = append(invalidBoundaryRegions[region.StartKey], region.Id)
 			}
 		}
+
+		// The endKey for the last Region, just ignore.
+		if len(region.EndKey) == 0 {
+			continue
+		}
 		endKey, err := tidb.FromPDKey(region.EndKey)
 		if err != nil {
 			return err
@@ -199,12 +204,13 @@ func concatRegionsWithSameTableID(allRegions, newRegions []pd.Region, tableID in
 		allRegions = append(allRegions, region)
 	}
 
-	if allWithInOneTable {
+	hasMoreRegions := allWithInOneTable && len(lastEndKey.GetBytes()) != 0
+	if hasMoreRegions {
 		fmt.Printf("The start key of Region %d is %s, table id: %d. continue with the end key: %s\n",
 			lastRegionID, lastStartKey.GetPDKey(), tableID, lastEndKey.GetPDKey())
 	} else {
 		fmt.Printf("The start key of Region %d is %s, table id: %d. All finished, break.\n",
 			lastRegionID, lastStartKey.GetPDKey(), lastTblID)
 	}
-	return allRegions, allWithInOneTable, lastEndKey, nil
+	return allRegions, hasMoreRegions, lastEndKey, nil
 }
