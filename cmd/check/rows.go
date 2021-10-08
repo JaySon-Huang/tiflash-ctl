@@ -32,6 +32,7 @@ func NewRowConsistencyCmd() *cobra.Command {
 
 	c.Flags().Int64Var(&opt.queryLowerBound, "lower_bound", 0, "The lower bound of query")
 	c.Flags().Int64Var(&opt.queryUpperBound, "upper_bound", 0, "The upper bound of query")
+	c.Flags().StringVar(&opt.rowIdColName, "row_id_col_name", "_tidb_rowid", "The TiDB row id column name")
 	return c
 }
 
@@ -42,6 +43,7 @@ type checkRowsOpts struct {
 	numReplica      int
 	queryLowerBound int64
 	queryUpperBound int64
+	rowIdColName    string
 }
 
 func checkRows(opts checkRowsOpts) error {
@@ -73,7 +75,7 @@ func checkRows(opts checkRowsOpts) error {
 		min, max := queryRanges[0].min, queryRanges[0].max
 		queryRanges = queryRanges[1:]
 
-		if ok, err := haveConsistNumOfRows(client.Db, opts.dbName, opts.tableName, curRange, opts.numReplica); err != nil {
+		if ok, err := haveConsistNumOfRows(client.Db, opts.dbName, opts.tableName, opts.rowIdColName, curRange, opts.numReplica); err != nil {
 			return err
 		} else if ok {
 			curRangeIsConsist = true
@@ -117,11 +119,11 @@ func setEngine(db *sql.DB, engine string) error {
 	return err
 }
 
-func getMinMaxTiDBRowID(db *sql.DB, database, table string, engine string) (int64, int64, error) {
+func getMinMaxTiDBRowID(db *sql.DB, database, table string, rowIdColName string, engine string) (int64, int64, error) {
 	if err := setEngine(db, engine); err != nil {
 		return 0, 0, err
 	}
-	sql := fmt.Sprintf("select min(_tidb_rowid), max(_tidb_rowid) from `%s`.`%s`", database, table)
+	sql := fmt.Sprintf("select min(%s), max(%s) from `%s`.`%s`", rowIdColName, rowIdColName, database, table)
 	defer func(start time.Time) {
 		elapsed := time.Since(start)
 		fmt.Printf("%s => %dms (%s)\n", sql, elapsed.Milliseconds(), engine)
@@ -141,11 +143,11 @@ func getMinMaxTiDBRowID(db *sql.DB, database, table string, engine string) (int6
 	return minRowID, maxRowID, err
 }
 
-func getNumOfRows(db *sql.DB, database, table string, engine string, checkRange QueryRange) (uint64, error) {
+func getNumOfRows(db *sql.DB, database, table, rowIdColName string, engine string, checkRange QueryRange) (uint64, error) {
 	if err := setEngine(db, engine); err != nil {
 		return 0, err
 	}
-	sql := fmt.Sprintf("select count(*) from `%s`.`%s` %s", database, table, checkRange.toWhereFilter())
+	sql := fmt.Sprintf("select count(*) from `%s`.`%s` %s", database, table, checkRange.toWhereFilter(rowIdColName))
 	defer func(start time.Time) {
 		elapsed := time.Since(start)
 		fmt.Printf("%s => %dms (%s)\n", sql, elapsed.Milliseconds(), engine)
@@ -203,7 +205,7 @@ func (m QueryRange) String() string {
 	return buffer.String()
 }
 
-func (m *QueryRange) toWhereFilter() string {
+func (m *QueryRange) toWhereFilter(rowIdColName string) string {
 	var buffer bytes.Buffer
 	if m.minInf && m.maxInf {
 		return buffer.String()
@@ -211,13 +213,13 @@ func (m *QueryRange) toWhereFilter() string {
 	buffer.WriteString("where ")
 	if !m.minInf {
 		buffer.WriteString(strconv.FormatInt(m.min, 10))
-		buffer.WriteString(" <= _tidb_rowid")
+		buffer.WriteString(" <= " + rowIdColName)
 		if !m.maxInf {
 			buffer.WriteString(" and ")
 		}
 	}
 	if !m.maxInf {
-		buffer.WriteString("_tidb_rowid < ")
+		buffer.WriteString(rowIdColName + " < ")
 		buffer.WriteString(strconv.FormatInt(m.max, 10))
 	}
 	return buffer.String()
@@ -250,17 +252,17 @@ func getCheckRangeFromRegion(region *pd.Region) (QueryRange, error) {
 	return queryRange, nil
 }
 
-func haveConsistNumOfRows(db *sql.DB, database, table string, queryRange QueryRange, numCheckTimes int) (bool, error) {
+func haveConsistNumOfRows(db *sql.DB, database, table, rowIdColName string, queryRange QueryRange, numCheckTimes int) (bool, error) {
 	var (
 		numRowsTiKV    uint64 = 0
 		numRowsTiFlash uint64 = 0
 		err            error
 	)
 	for i := 0; i < numCheckTimes && numRowsTiKV == numRowsTiFlash; i++ {
-		if numRowsTiKV, err = getNumOfRows(db, database, table, "tikv", queryRange); err != nil {
+		if numRowsTiKV, err = getNumOfRows(db, database, table, rowIdColName, "tikv", queryRange); err != nil {
 			return false, err
 		}
-		if numRowsTiFlash, err = getNumOfRows(db, database, table, "tiflash", queryRange); err != nil {
+		if numRowsTiFlash, err = getNumOfRows(db, database, table, rowIdColName, "tiflash", queryRange); err != nil {
 			return false, err
 		}
 	}
@@ -276,11 +278,11 @@ func haveConsistNumOfRows(db *sql.DB, database, table string, queryRange QueryRa
 func getInitQueryRange(db *sql.DB, opts checkRowsOpts) ([]QueryRange, error) {
 	var queryRanges []QueryRange
 	if opts.queryLowerBound == 0 && opts.queryUpperBound == 0 {
-		tikvMinID, tikvMaxID, err := getMinMaxTiDBRowID(db, opts.dbName, opts.tableName, "tikv")
+		tikvMinID, tikvMaxID, err := getMinMaxTiDBRowID(db, opts.dbName, opts.tableName, opts.rowIdColName, "tikv")
 		if err != nil {
 			return nil, err
 		}
-		tiflashMinID, tiflashMaxID, err := getMinMaxTiDBRowID(db, opts.dbName, opts.tableName, "tiflash")
+		tiflashMinID, tiflashMaxID, err := getMinMaxTiDBRowID(db, opts.dbName, opts.tableName, opts.rowIdColName, "tiflash")
 		if err != nil {
 			return nil, err
 		}
@@ -317,7 +319,7 @@ func checkRowsByKey(db *sql.DB, opts checkRowsOpts, pdClient *pd.Client, key tid
 			return err
 		}
 		fmt.Printf("The query range of Region %d is %s\n", region.Id, queryRange.String())
-		isConsist, err := haveConsistNumOfRows(db, opts.dbName, opts.tableName, queryRange, opts.numReplica)
+		isConsist, err := haveConsistNumOfRows(db, opts.dbName, opts.tableName, opts.rowIdColName, queryRange, opts.numReplica)
 		if err != nil {
 			return err
 		}
