@@ -275,6 +275,20 @@ func haveConsistNumOfRows(db *sql.DB, database, table, rowIdColName string, quer
 	return numRowsTiKV == numRowsTiFlash, err
 }
 
+func min(x, y int64) int64 {
+	if x < y {
+		return x
+	}
+	return y
+}
+
+func max(x, y int64) int64 {
+	if x > y {
+		return x
+	}
+	return y
+}
+
 func getInitQueryRange(db *sql.DB, opts checkRowsOpts) ([]QueryRange, error) {
 	var queryRanges []QueryRange
 	if opts.queryLowerBound == 0 && opts.queryUpperBound == 0 {
@@ -289,14 +303,16 @@ func getInitQueryRange(db *sql.DB, opts checkRowsOpts) ([]QueryRange, error) {
 
 		fmt.Printf("RowID range: [%d, %d] (tikv)\n", tikvMinID, tikvMaxID)
 		fmt.Printf("RowID range: [%d, %d] (tiflash)\n", tiflashMinID, tiflashMaxID)
+		allMinID := min(tikvMinID, tiflashMinID)
+		allMaxID := max(tikvMaxID, tiflashMaxID)
 		if tikvMinID != tiflashMinID {
-			panic(fmt.Sprintf("tikv min id %d != tiflash min id %d", tikvMinID, tiflashMinID))
+			fmt.Printf("tikv min id %d != tiflash min id %d, use %d as begin", tikvMinID, tiflashMinID, allMinID)
 		}
 		if tikvMaxID != tiflashMaxID {
-			panic(fmt.Sprintf("tikv max id %d != tiflash max id %d", tikvMaxID, tiflashMaxID))
+			fmt.Printf("tikv max id %d != tiflash max id %d, use %d as end", tikvMaxID, tiflashMaxID, allMaxID)
 		}
 
-		queryRanges = append(queryRanges, NewMinMax(tikvMinID, tikvMaxID+1))
+		queryRanges = append(queryRanges, NewMinMax(allMinID, allMaxID+1))
 	} else if opts.queryLowerBound != 0 && opts.queryUpperBound != 0 {
 		queryRanges = append(queryRanges, NewMinMax(opts.queryLowerBound, opts.queryUpperBound))
 	} else if opts.queryLowerBound != 0 {
