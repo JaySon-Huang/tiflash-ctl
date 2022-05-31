@@ -326,6 +326,14 @@ func getInitQueryRange(db *sql.DB, opts checkRowsOpts) ([]QueryRange, error) {
 func checkRowsByKey(db *sql.DB, opts checkRowsOpts, pdClient *pd.Client, key tidb.TiKVKey) error {
 	numSuccess := 0
 	for {
+		tableRow, err := key.GetTableRow()
+		if err != nil {
+			return err
+		} else if tableRow.Status == tidb.MaxInf {
+			// meet the end of this table, done
+			break
+		}
+
 		region, err := pdClient.GetRegionByKey(key)
 		if err != nil {
 			return err
