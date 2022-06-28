@@ -56,6 +56,18 @@ Flags:
 ```bash
 # Run the check and find the region peers we need to remove from the log
 > ./tiflash-ctl check consistency --database test --table test_table --tidb_ip ${TIDB_IP} --tidb_port ${TIDB_PORT} > check.log
+
+# The output will show the region with different number of rows between tikv and tiflash
+> cat check.log
+# ...
+# select count(*) from `test`.`test_table` where 2432113 <= _tidb_rowid and _tidb_rowid < 3238283 => 4ms (tiflash)
+# Range [2432113, 3238283), num of rows: tikv 0, tiflash 863. FAIL
+# Region {581 7480000000000000FF435F728000000000FF251C710000000000FA 7480000000000000FF435F728000000000FF31698B0000000000FA [{582 5 Voter} {583 62 Learner} {584 95 Learner}]} have not consist num of rows
+# operator add remove-peer 581 62
+# operator add remove-peer 581 95
+# ...
+
+# Get the region peers we need to remove 
 > grep 'operator' check.log
 operator add remove-peer 581 62
 operator add remove-peer 581 95
