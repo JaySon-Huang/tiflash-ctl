@@ -30,8 +30,8 @@ func NewRowConsistencyCmd() *cobra.Command {
 	c.Flags().StringVar(&opt.tableName, "table", "", "The table name of query table")
 	c.Flags().IntVar(&opt.numReplica, "num_replica", 2, "The number of TiFlash replica for the query table")
 
-	c.Flags().Int64Var(&opt.queryLowerBound, "lower_bound", 0, "The lower bound of query")
-	c.Flags().Int64Var(&opt.queryUpperBound, "upper_bound", 0, "The upper bound of query")
+	c.Flags().Int64Var(&opt.queryLowerBound, "lower_bound", 0, "The lower bound of query (leave it to be default)")
+	c.Flags().Int64Var(&opt.queryUpperBound, "upper_bound", 0, "The upper bound of query (leave it to be default)")
 	c.Flags().StringVar(&opt.rowIdColName, "row_id_col_name", "_tidb_rowid", "The TiDB row id column name")
 	return c
 }
