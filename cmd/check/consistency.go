@@ -54,10 +54,10 @@ func checkRows(opts checkRowsOpts) error {
 	defer client.Close()
 
 	if err = client.ExecWithElapsed("set tidb_allow_batch_cop = 0"); err != nil {
-		fmt.Printf("tidb_allow_batch_cop is ignored")
+		fmt.Println("tidb_allow_batch_cop is ignored")
 	}
 	if err = client.ExecWithElapsed("set tidb_allow_mpp = 0"); err != nil {
-		fmt.Printf("tidb_allow_mpp = 0 is ignored")
+		fmt.Println("tidb_allow_mpp = 0 is ignored")
 	}
 
 	queryRanges, err := getInitQueryRange(client.Db, opts)
@@ -306,10 +306,10 @@ func getInitQueryRange(db *sql.DB, opts checkRowsOpts) ([]QueryRange, error) {
 		allMinID := min(tikvMinID, tiflashMinID)
 		allMaxID := max(tikvMaxID, tiflashMaxID)
 		if tikvMinID != tiflashMinID {
-			fmt.Printf("tikv min id %d != tiflash min id %d, use %d as begin", tikvMinID, tiflashMinID, allMinID)
+			fmt.Printf("tikv min id %d != tiflash min id %d, use %d as begin\n", tikvMinID, tiflashMinID, allMinID)
 		}
 		if tikvMaxID != tiflashMaxID {
-			fmt.Printf("tikv max id %d != tiflash max id %d, use %d as end", tikvMaxID, tiflashMaxID, allMaxID)
+			fmt.Printf("tikv max id %d != tiflash max id %d, use %d as end\n", tikvMaxID, tiflashMaxID, allMaxID)
 		}
 
 		queryRanges = append(queryRanges, NewMinMax(allMinID, allMaxID+1))
