@@ -54,10 +54,10 @@ func checkRows(opts checkRowsOpts) error {
 	defer client.Close()
 
 	if err = client.ExecWithElapsed("set tidb_allow_batch_cop = 0"); err != nil {
-		return err
+		fmt.Printf("tidb_allow_batch_cop is ignored")
 	}
 	if err = client.ExecWithElapsed("set tidb_allow_mpp = 0"); err != nil {
-		return err
+		fmt.Printf("tidb_allow_mpp = 0 is ignored")
 	}
 
 	queryRanges, err := getInitQueryRange(client.Db, opts)
