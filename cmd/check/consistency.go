@@ -100,10 +100,11 @@ func checkRows(opts checkRowsOpts) error {
 		}
 	}
 
-	if opts.forceCheckByKey || curRangeIsConsist {
+	if !opts.forceCheckByKey && curRangeIsConsist {
 		return nil
 	}
 
+	// else force check by key or curRange is not consist
 	fmt.Printf("\n========\nChecking the rows of Region with left boundary=%d\n", curRange.min)
 	pdInstances, err := client.GetInstances("pd")
 	if err != nil {
