@@ -30,9 +30,11 @@ func NewRowConsistencyCmd() *cobra.Command {
 	c.Flags().StringVar(&opt.tableName, "table", "", "The table name of query table")
 	c.Flags().IntVar(&opt.numReplica, "num_replica", 2, "The number of TiFlash replica for the query table")
 
+	c.Flags().StringVar(&opt.rowIdColName, "row_id_col_name", "_tidb_rowid", "The TiDB row id column name")
+	c.Flags().Int64Var(&opt.minNumInRange, "min_num_in_range", 1, "The minimal number of ids in a query range to search")
+	c.Flags().BoolVar(&opt.forceCheckByKey, "force", false, "Force run checking rows by Region")
 	c.Flags().Int64Var(&opt.queryLowerBound, "lower_bound", 0, "The lower bound of query (leave it to be default)")
 	c.Flags().Int64Var(&opt.queryUpperBound, "upper_bound", 0, "The upper bound of query (leave it to be default)")
-	c.Flags().StringVar(&opt.rowIdColName, "row_id_col_name", "_tidb_rowid", "The TiDB row id column name")
 	return c
 }
 
@@ -41,9 +43,11 @@ type checkRowsOpts struct {
 	dbName          string
 	tableName       string
 	numReplica      int
+	rowIdColName    string
+	forceCheckByKey bool
+	minNumInRange   int64
 	queryLowerBound int64
 	queryUpperBound int64
-	rowIdColName    string
 }
 
 func checkRows(opts checkRowsOpts) error {
@@ -81,20 +85,26 @@ func checkRows(opts checkRowsOpts) error {
 			curRangeIsConsist = true
 		} else {
 			queryRanges = nil
-			mid := min + (max-min)/2
-			if mid > min && mid < max {
-				queryRanges = append(queryRanges, NewMinMax(min, mid), NewMinMax(mid, max))
+			nids := max - min
+			if nids > opts.minNumInRange {
+				mid := min + nids/2
+				// split the range in the middle
+				if mid > min && mid < max {
+					queryRanges = append(queryRanges, NewMinMax(min, mid), NewMinMax(mid, max))
+				}
+				fmt.Printf("New query ranges: %v\n", queryRanges)
+			} else {
+				fmt.Printf("Skip generating new query range, current max-min=%d-%d=%d\n", max, min, nids)
 			}
-			fmt.Printf("New query ranges: %v\n", queryRanges)
 			curRangeIsConsist = false
 		}
 	}
 
-	if curRangeIsConsist {
+	if opts.forceCheckByKey || curRangeIsConsist {
 		return nil
 	}
 
-	fmt.Printf("\n========\nChecking the rows of Region\n")
+	fmt.Printf("\n========\nChecking the rows of Region with left boundary=%d\n", curRange.min)
 	pdInstances, err := client.GetInstances("pd")
 	if err != nil {
 		return err
