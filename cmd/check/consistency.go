@@ -33,6 +33,7 @@ func NewRowConsistencyCmd() *cobra.Command {
 	c.Flags().StringVar(&opt.rowIdColName, "row_id_col_name", "_tidb_rowid", "The TiDB row id column name")
 	c.Flags().Int64Var(&opt.minNumInRange, "min_num_in_range", 1, "The minimal number of ids in a query range to search")
 	c.Flags().BoolVar(&opt.forceCheckByKey, "force", false, "Force run checking rows by Region")
+	c.Flags().Int64Var(&opt.numRegionsLimit, "regions_limit", 20, "The limited number of Regions to check")
 	c.Flags().Int64Var(&opt.queryLowerBound, "lower_bound", 0, "The lower bound of query (leave it to be default)")
 	c.Flags().Int64Var(&opt.queryUpperBound, "upper_bound", 0, "The upper bound of query (leave it to be default)")
 	return c
@@ -46,6 +47,7 @@ type checkRowsOpts struct {
 	rowIdColName    string
 	forceCheckByKey bool
 	minNumInRange   int64
+	numRegionsLimit int64
 	queryLowerBound int64
 	queryUpperBound int64
 }
@@ -353,6 +355,7 @@ func checkRowsByKey(db *sql.DB, opts checkRowsOpts, pdClient *pd.Client, key tid
 		if err != nil {
 			return err
 		}
+		fmt.Printf("Config: regionsLimit=%d,numSuccess=%d\n", opts.numRegionsLimit, numSuccess)
 		fmt.Printf("The query range of Region %d is %s\n", region.Id, queryRange.String())
 		isConsist, err := haveConsistNumOfRows(db, opts.dbName, opts.tableName, opts.rowIdColName, queryRange, opts.numReplica)
 		if err != nil {
@@ -361,7 +364,8 @@ func checkRowsByKey(db *sql.DB, opts checkRowsOpts, pdClient *pd.Client, key tid
 		if isConsist {
 			numSuccess += 1
 			fmt.Printf("Region %v have consist num of rows\n", region)
-			if numSuccess > 20 {
+			// If numRegionsLimit <= 0, continue to check all regions
+			if opts.numRegionsLimit > 0 && numSuccess > int(opts.numRegionsLimit) {
 				break
 			}
 		} else {
