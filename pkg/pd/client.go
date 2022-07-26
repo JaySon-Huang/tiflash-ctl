@@ -27,8 +27,44 @@ type Peer struct {
 	RoleName string `json:"role_name"`
 }
 
+const RoleNameLearner = "Learner"
+const RoleNameVoter = "Voter"
+
+func (p *Peer) UnmarshalJSON(data []byte) error {
+	type APeer Peer
+	peer := &APeer{}
+	if err := json.Unmarshal(data, peer); err != nil {
+		return err
+	}
+
+	if len(peer.RoleName) != 0 {
+		p.RoleName = peer.RoleName
+	} else {
+		// Try to parse from v4.0.x version
+		// { "id": 60,
+		//   "store_id": 44,
+		//   "is_learner": true }
+		type V4Peer struct {
+			IsLearner bool `json:"is_learner"`
+		}
+		v4peer := V4Peer{}
+		if err := json.Unmarshal(data, &v4peer); err != nil {
+			return err
+		}
+
+		if v4peer.IsLearner {
+			p.RoleName = RoleNameLearner
+		} else {
+			p.RoleName = RoleNameVoter
+		}
+	}
+	p.Id = peer.Id
+	p.StoreId = peer.StoreId
+	return nil
+}
+
 func (p *Peer) IsLearner() bool {
-	return p.RoleName == "Learner"
+	return p.RoleName == RoleNameLearner
 }
 
 type Region struct {
