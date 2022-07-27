@@ -2,7 +2,6 @@ package pd_test
 
 import (
 	"encoding/json"
-	"fmt"
 	"testing"
 
 	"github.com/JaySon-Huang/tiflash-ctl/pkg/pd"
@@ -46,7 +45,6 @@ func TestParseRegionFromV4(t *testing.T) {
 	err := json.Unmarshal(jsonRsp, &region)
 	assert.Equal(t, err, nil)
 
-	fmt.Printf("%v", region)
 	assert.Equal(t, int64(58), region.Id)
 	assert.Equal(t, "7480000000000000FF345F720000000000FA", region.StartKey)
 	assert.Equal(t, "7480000000000000FF3500000000000000F8", region.EndKey)
@@ -59,6 +57,8 @@ func TestParseRegionFromV4(t *testing.T) {
 	assert.Equal(t, int64(60), p60.Id)
 	assert.Equal(t, int64(44), p60.StoreId)
 	assert.Equal(t, pd.RoleNameLearner, p60.RoleName)
+
+	assert.Equal(t, []int64{44}, region.GetLearnerStoreIDs())
 }
 
 func TestParseRegionFromV5(t *testing.T) {
@@ -101,7 +101,6 @@ func TestParseRegionFromV5(t *testing.T) {
 	err := json.Unmarshal(jsonRsp, &region)
 	assert.Equal(t, err, nil)
 
-	fmt.Printf("%v", region)
 	assert.Equal(t, int64(4824), region.Id)
 	assert.Equal(t, "7480000000000000FF4C5F728000000094FFFFC3460000000000FA", region.StartKey)
 	assert.Equal(t, "7480000000000000FF4C5F728000000095FF06C0E00000000000FA", region.EndKey)
@@ -114,4 +113,6 @@ func TestParseRegionFromV5(t *testing.T) {
 	assert.Equal(t, int64(4826), p1.Id)
 	assert.Equal(t, int64(68), p1.StoreId)
 	assert.Equal(t, pd.RoleNameLearner, p1.RoleName)
+
+	assert.Equal(t, []int64{68}, region.GetLearnerStoreIDs())
 }

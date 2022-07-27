@@ -74,7 +74,7 @@ type Region struct {
 	Peers    []Peer `json:"peers"`
 }
 
-func (r *Region) GetLearnerIDs() []int64 {
+func (r *Region) GetLearnerStoreIDs() []int64 {
 	res := make([]int64, 0)
 	for _, p := range r.Peers {
 		if p.IsLearner() {
