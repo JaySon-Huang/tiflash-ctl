@@ -132,6 +132,12 @@ func setEngine(db *sql.DB, engine string) error {
 	return err
 }
 
+func setEngineOnTxn(txn *sql.Tx, engine string) error {
+	sql := "set tidb_isolation_read_engines=" + engine
+	_, err := txn.Exec(sql)
+	return err
+}
+
 func getMinMaxTiDBRowID(db *sql.DB, database, table string, rowIdColName string, engine string) (int64, int64, error) {
 	if err := setEngine(db, engine); err != nil {
 		return 0, 0, err
@@ -156,8 +162,8 @@ func getMinMaxTiDBRowID(db *sql.DB, database, table string, rowIdColName string,
 	return minRowID, maxRowID, err
 }
 
-func getNumOfRows(db *sql.DB, database, table, rowIdColName string, engine string, checkRange QueryRange) (uint64, error) {
-	if err := setEngine(db, engine); err != nil {
+func getNumOfRows(txn *sql.Tx, database, table, rowIdColName string, engine string, checkRange QueryRange) (uint64, error) {
+	if err := setEngineOnTxn(txn, engine); err != nil {
 		return 0, err
 	}
 	sql := fmt.Sprintf("select count(*) from `%s`.`%s` %s", database, table, checkRange.toWhereFilter(rowIdColName))
@@ -166,7 +172,7 @@ func getNumOfRows(db *sql.DB, database, table, rowIdColName string, engine strin
 		fmt.Printf("%s => %dms (%s)\n", sql, elapsed.Milliseconds(), engine)
 	}(time.Now())
 
-	rows, err := db.Query(sql)
+	rows, err := txn.Query(sql)
 	if err != nil {
 		return 0, err
 	}
@@ -271,13 +277,22 @@ func haveConsistNumOfRows(db *sql.DB, database, table, rowIdColName string, quer
 		numRowsTiFlash uint64 = 0
 		err            error
 	)
+
+	// Compare the tikv and tiflash # of rows under the same transaction
+	txn, err := db.Begin()
+	if err != nil {
+		return false, err
+	}
 	for i := 0; i < numCheckTimes && numRowsTiKV == numRowsTiFlash; i++ {
-		if numRowsTiKV, err = getNumOfRows(db, database, table, rowIdColName, "tikv", queryRange); err != nil {
+		if numRowsTiKV, err = getNumOfRows(txn, database, table, rowIdColName, "tikv", queryRange); err != nil {
 			return false, err
 		}
-		if numRowsTiFlash, err = getNumOfRows(db, database, table, rowIdColName, "tiflash", queryRange); err != nil {
+		if numRowsTiFlash, err = getNumOfRows(txn, database, table, rowIdColName, "tiflash", queryRange); err != nil {
 			return false, err
 		}
+	}
+	if err = txn.Commit(); err != nil {
+		fmt.Printf("Ignore error on commit txn, %v\n", err)
 	}
 
 	if numRowsTiKV != numRowsTiFlash {
@@ -371,7 +386,7 @@ func checkRowsByKey(db *sql.DB, opts checkRowsOpts, pdClient *pd.Client, key tid
 		} else {
 			numSuccess = 0
 			fmt.Printf("Region %v have not consist num of rows\n", region)
-			for _, storeID := range region.GetLearnerIDs() {
+			for _, storeID := range region.GetLearnerStoreIDs() {
 				fmt.Printf("operator add remove-peer %d %d\n", region.Id, storeID)
 			}
 		}
