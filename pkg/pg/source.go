@@ -80,7 +80,7 @@ var (
 	mktsegment = []string{"AUTOMOBILE", "BUILDING", "FURNITURE", "MACHINERY", "HOUSEHOLD"}
 )
 
-func (s *DataSource) RandCustName() string {
+func (s *DataSource) RandCustomerName() string {
 	custKey := s.UniformIntDist(1, int(s.CustSize()+1))
 	return fmt.Sprintf("Customer#%09d", custKey)
 }

@@ -66,6 +66,18 @@ func NewTxnClient(ctx context.Context, connString string, dataSrc *DataSource) (
 	}, nil
 }
 
+func (c *TxnClient) CreateFreshness(nTxnClients int) error {
+	for i := 0; i < nTxnClients; i++ {
+		sql := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS HAT.FRESHNESS%d
+(F_TXNNUM INTEGER, F_CLIENTNUM INTEGER)
+/*T! SHARD_ROW_ID_BITS=6 */`, i)
+		if _, err := c.conn.Exec(context.Background(), sql); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (c *TxnClient) Prepare(ctx context.Context) error {
 	for _, x := range txnCommands {
 		_, err := c.conn.Prepare(ctx, x.Name, x.Cmd)
@@ -88,9 +100,9 @@ func fArrayToString(a []float64, delim string) string {
 	return strings.Trim(strings.Replace(fmt.Sprint(a), " ", delim, -1), "[]")
 }
 
-func (c *TxnClient) NewOrderTransactionPS(ctx context.Context) error {
+func (c *TxnClient) NewOrderTransactionPS(ctx context.Context, lowestOrderKey int) error {
 	// Create a random LO_CUSTNAME
-	custName := c.dataSource.RandCustName()
+	customerName := c.dataSource.RandCustomerName()
 
 	// Choose a random number of orders
 	numOrders := int(c.dataSource.UniformIntDist(1, 7))
@@ -130,13 +142,12 @@ func (c *TxnClient) NewOrderTransactionPS(ctx context.Context) error {
 		shipModes[i] = c.dataSource.RandShipModes()
 	}
 	tableName := fmt.Sprintf("freshness%d", c.numClients)
-	orderKey := c.loOrderKey
 	_, err := c.conn.Exec(
 		ctx,
 		txnQueries[0],
-		orderKey,
+		lowestOrderKey,
 		numOrders,
-		custName,
+		customerName,
 		iArrayToString(partKeys, ","),
 		strings.Join(suppNames, ","),
 		strings.Join(dateNames, "^"),
@@ -152,7 +163,7 @@ func (c *TxnClient) NewOrderTransactionPS(ctx context.Context) error {
 		tableName,
 		c.localCounter)
 	if err != nil {
-		return err
+		return fmt.Errorf("%s, orderKey=%d, numOrder=%d", err, lowestOrderKey, numOrders)
 	}
 	fmt.Printf("done!\n")
 	return nil

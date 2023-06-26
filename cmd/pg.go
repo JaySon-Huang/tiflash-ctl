@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/JaySon-Huang/tiflash-ctl/pkg/pg"
+	"github.com/jackc/pgx/v4"
 	"github.com/spf13/cobra"
 )
 
@@ -47,7 +48,7 @@ func exec(opts ExecOpts) error {
 	opts.pgHost = "127.0.0.1"
 	opts.pgPort = 5432
 	opts.dbName = "hat"
-	opts.user = "test"
+	opts.user = "jayson"
 	opts.password = "test"
 	dsn := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=disable", opts.user, opts.password, opts.pgHost, opts.pgPort, opts.dbName)
 	// conn, err := pgx.Connect(context.Background(), dsn)
@@ -68,6 +69,23 @@ func exec(opts ExecOpts) error {
 	sf := 1.0
 	dataSrc := pg.NewDataSource(sf)
 	fmt.Printf("sf=%f created\n", sf)
+
+	nTxnClients := 2
+
+	// A common connection
+	conn, err := pgx.Connect(context.Background(), dsn)
+	if err != nil {
+		return err
+	}
+	defer conn.Close(context.Background())
+
+	var maxOrderKey int64
+	err = conn.QueryRow(context.Background(), "SELECT MAX(LO_ORDERKEY) FROM HAT.LINEORDER;").Scan(&maxOrderKey)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("maxOrderKey=%d\n", maxOrderKey)
+
 	txnClient, err := pg.NewTxnClient(context.Background(), dsn, &dataSrc)
 	if err != nil {
 		return err
@@ -75,7 +93,15 @@ func exec(opts ExecOpts) error {
 	defer txnClient.Close(context.Background())
 	fmt.Printf("client created\n")
 
-	txnClient.NewOrderTransactionPS(context.Background())
+	err = txnClient.CreateFreshness(nTxnClients)
+	if err != nil {
+		return err
+	}
+
+	err = txnClient.NewOrderTransactionPS(context.Background(), int(maxOrderKey)+1)
+	if err != nil {
+		return err
+	}
 	fmt.Printf("done\n")
 	return nil
 }
