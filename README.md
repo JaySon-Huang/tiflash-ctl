@@ -118,9 +118,11 @@ Range [62530067, 64156204), num of rows: tikv 1624960, tiflash 1624960. OK   <--
 ### `check boundary`
 #### 作用描述及注意事项
 部分 tidb 组件的 bug 会导致 Region 边界不能被 tiflash decode 得到正确的 RowID，导致 tiflash 数据少于 tikv 的问题。  
-如果存在这样错误的 Region 边界，程序最终会列出通过 `pd-ctl` split、merge 哪些 Region 的命令。
+如果存在这样错误的 Region 边界: 
 
-通过 `pd-ctl` 执行上述命令对 Region 进行 split、merge，使其具有正确的边界后，再使用 `check consistency` 命令来给不一致的 Region 重新创建 tiflash peer。
+* 先执行 `tiflash-ctl check boundary --cmd split --database ...`，程序会列出通过 `pd-ctl` split 哪些 Region 的命令，先执行这些命令，切出具有正确的边界的 Region；
+* 然后再执行 `tiflash-ctl check boundary --cmd merge --database ...`，程序会列出需要将哪些具有不正确边界的 Region 合并的命令；
+* 最后再使用 `tiflash-ctl check consistency` 来生成重新创建导致数据不一致的 TiFlash 副本
 
 #### 参数说明
 ```
