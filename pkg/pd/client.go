@@ -3,7 +3,7 @@ package pd
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -104,7 +104,7 @@ func (c *Client) GetRegionByKey(key tidb.TiKVKey) (Region, error) {
 		return region, err
 	}
 	defer resp.Body.Close()
-	bytes, err := ioutil.ReadAll(resp.Body)
+	bytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return region, err
 	}
@@ -125,7 +125,7 @@ func (c *Client) GetNumRegionBetweenKey(startKey, endKey tidb.TiKVKey) (int64, e
 		return 0, err
 	}
 	defer resp.Body.Close()
-	bytes, err := ioutil.ReadAll(resp.Body)
+	bytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return 0, err
 	}
@@ -160,7 +160,7 @@ func (c *Client) GetRegions(startKey tidb.TiKVKey, limit int64) ([]Region, error
 		return nil, err
 	}
 	defer resp.Body.Close()
-	bytes, err := ioutil.ReadAll(resp.Body)
+	bytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
