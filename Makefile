@@ -1,3 +1,5 @@
+$(info    VERSION is $(VERSION))
+
 GOPATH ?= $(shell go env GOPATH)
 
 # Ensure GOPATH is set before running build process.
