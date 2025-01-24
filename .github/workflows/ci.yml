@@ -27,7 +27,7 @@ jobs:
         go-version: 1.17
 
     - name: Build
-      run: VERSION=${{ PRE_DEF_VERSION }} make
+      run: VERSION="$PRE_DEF_VERSION" make
 
     - name: Test
       run: make test
