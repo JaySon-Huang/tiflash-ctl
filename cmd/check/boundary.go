@@ -22,8 +22,10 @@ func NewCheckRegionBoundaryCmd() *cobra.Command {
 	// Flags for "boundary"
 	options.AddTiDBConnFlags(c, &opt.tidb)
 
-	c.Flags().StringVar(&opt.dbName, "database", "", "The database name of query table")
-	c.Flags().StringVar(&opt.tableName, "table", "", "The table name of query table")
+	c.Flags().StringVar(&opt.dbName, "database", "", "The database name of table to be checked")
+	c.Flags().StringVar(&opt.tableName, "table", "", "The table name of table to be checked")
+
+	c.Flags().Int64SliceVar(&opt.table_ids, "table_ids", []int64{}, "The table_ids of table to be checked. If set, --database and --table will be ignored")
 
 	c.Flags().Int64Var(&opt.numPerBatch, "batch", 16, "The batch size for fetching Region info")
 	c.Flags().StringVar(&opt.mode, "cmd", "split", "'split' dump the split command, 'merge' dump the merge command")
@@ -32,9 +34,14 @@ func NewCheckRegionBoundaryCmd() *cobra.Command {
 }
 
 type checkRegionBoundaryOpts struct {
-	tidb      tidb.TiDBClientOpts
+	tidb tidb.TiDBClientOpts
+
+	// dbName and tableName are used to check the boundary of a given table
 	dbName    string
 	tableName string
+
+	// table_ids is used to check the boundary of multiple tables
+	table_ids []int64
 
 	numPerBatch int64
 	mode        string
@@ -53,11 +60,34 @@ func checkBoundary(opts checkRegionBoundaryOpts) error {
 	}
 	pdClient := pd.NewPDClient(pdInstances[0]) // FIXME: can not get instances
 
-	tableID, err := client.GetTableID(opts.dbName, opts.tableName)
-	if err != nil {
-		return err
+	if len(opts.table_ids) == 0 {
+		if opts.dbName == "" || opts.tableName == "" {
+			return fmt.Errorf("please specify the table to be check by `--database` and `--table` or `--table_ids`")
+		}
+
+		fmt.Printf("Getting the table_id of `%s`.`%s`\n", opts.dbName, opts.tableName)
+		tableID, err := client.GetTableID(opts.dbName, opts.tableName)
+		if err != nil {
+			return err
+		}
+		opts.table_ids = []int64{tableID}
 	}
 
+	if len(opts.table_ids) > 1 {
+		fmt.Printf("The table_ids are: %v\n", opts.table_ids)
+	}
+
+	for _, tableID := range opts.table_ids {
+		fmt.Printf("\nCheck the boundary of table_id: %d\n", tableID)
+		err = checkBoundaryForTableID(tableID, opts, pdClient)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func checkBoundaryForTableID(tableID int64, opts checkRegionBoundaryOpts, pdClient pd.Client) error {
 	startKey, endKey := tidb.NewTableStartAsKey(tableID), tidb.NewTableEndAsKey(tableID)
 
 	numRegions, err := pdClient.GetNumRegionBetweenKey(startKey, endKey)
@@ -65,8 +95,8 @@ func checkBoundary(opts checkRegionBoundaryOpts) error {
 		return err
 	}
 
-	fmt.Printf("The expected total num of Regions is %d, table: `%s`.`%s`, table id: %d\n",
-		numRegions, opts.dbName, opts.tableName, tableID)
+	fmt.Printf("The expected total num of Regions is %d, table_id: %d\n",
+		numRegions, tableID)
 	fmt.Printf("Scanning all Regions with batch size: %d\n", opts.numPerBatch)
 
 	// The numRegions may be not accurate cause there could be region merge/split
@@ -95,8 +125,8 @@ func checkBoundary(opts checkRegionBoundaryOpts) error {
 		queryStartKey = nextQueryKey
 	}
 
-	fmt.Printf("The actual total num of Regions is %d, table: `%s`.`%s`, table id: %d\n",
-		len(allRegions), opts.dbName, opts.tableName, tableID)
+	fmt.Printf("The actual total num of Regions is %d, table_id: %d\n",
+		len(allRegions), tableID)
 
 	// RegionID -> Region
 	regionsWithInvalidBoundary := make(map[int64]pd.Region)
