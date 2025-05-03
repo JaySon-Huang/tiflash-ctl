@@ -47,7 +47,7 @@ func (c *Client) ExecWithElapsed(sql string) error {
 }
 
 func (c *Client) GetTableID(dbName, tblName string) (int64, error) {
-	rows, err := c.Db.Query("select TABLE_ID from information_schema.tiflash_replica where TABLE_SCHEMA = ? and TABLE_NAME = ?", dbName, tblName)
+	rows, err := c.Db.Query("select TIDB_TABLE_ID from `INFORMATION_SCHEMA`.`TABLES` where `TABLE_SCHEMA` = ? and `TABLE_NAME` = ?", dbName, tblName)
 	if err != nil {
 		return 0, err
 	}
@@ -59,7 +59,7 @@ func (c *Client) GetTableID(dbName, tblName string) (int64, error) {
 }
 
 func (c *Client) GetInstances(selectType string) ([]string, error) {
-	rows, err := c.Db.Query("select INSTANCE from information_schema.cluster_info where type = ?", selectType)
+	rows, err := c.Db.Query("select INSTANCE from `INFORMATION_SCHEMA`.`CLUSTER_INFO` where `TYPE` = ?", selectType)
 	if err != nil {
 		return nil, err
 	}
