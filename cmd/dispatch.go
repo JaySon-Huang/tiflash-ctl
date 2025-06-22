@@ -1,14 +1,20 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/JaySon-Huang/tiflash-ctl/pkg/options"
 	"github.com/JaySon-Huang/tiflash-ctl/pkg/tidb"
+	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	"github.com/spf13/cobra"
+	kvConfig "github.com/tikv/client-go/v2/config"
+	"github.com/tikv/client-go/v2/tikvrpc"
+	"github.com/tikv/client-go/v2/txnkv"
 )
 
 type FetchRegionsOpts struct {
@@ -22,6 +28,15 @@ type ExecCmdOpts struct {
 	tidb            tidb.TiDBClientOpts
 	tiflashHttpPort int
 	flashCmd        string
+}
+
+type ExecSQLCmdOpts struct {
+	pdAddr    string
+	flashAddr string
+	sslCA     string
+	sslCert   string
+	sslKey    string
+	flashSQL  string
 }
 
 func newDispatchCmd() *cobra.Command {
@@ -71,7 +86,28 @@ func newDispatchCmd() *cobra.Command {
 		return c
 	}
 
-	cmd.AddCommand(newGetRegionCmd(), newExecCmd())
+	newExecSQLCmd := func() *cobra.Command {
+		var opt ExecSQLCmdOpts
+		c := &cobra.Command{
+			Use:   "exec_sql",
+			Short: "Exec SQL command",
+			RunE: func(cmd *cobra.Command, args []string) error {
+				if opt.flashSQL == "" {
+					return fmt.Errorf("should set the command to execute")
+				}
+				return execTiFlashSQLCmd(opt)
+			},
+		}
+		c.Flags().StringVar(&opt.pdAddr, "pd", "127.0.0.1:2379", "pd address")
+		c.Flags().StringVar(&opt.flashAddr, "flash", "127.0.0.1:3930", "TiFlash address for SQL execution")
+		c.Flags().StringVar(&opt.flashSQL, "sql", "", "The SQL command to execute in TiFlash")
+		c.Flags().StringVar(&opt.sslCA, "ca", "", "Path to the CA certificate file for TLS")
+		c.Flags().StringVar(&opt.sslCert, "cert", "", "Path to the client certificate file for TLS")
+		c.Flags().StringVar(&opt.sslKey, "key", "", "Path to the client key file for TLS")
+		return c
+	}
+
+	cmd.AddCommand(newGetRegionCmd(), newExecCmd(), newExecSQLCmd())
 
 	return cmd
 }
@@ -153,5 +189,46 @@ func execTiFlashCmd(opts ExecCmdOpts) error {
 		}
 	}
 
+	return nil
+}
+
+type tiFlashSQLExecuteResponseMetaColumn struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
+}
+type tiFlashSQLExecuteResponse struct {
+	Meta []tiFlashSQLExecuteResponseMetaColumn `json:"meta"`
+	Data [][]any                               `json:"data"`
+}
+
+func execTiFlashSQLCmd(opts ExecSQLCmdOpts) error {
+	cfg := kvConfig.GetGlobalConfig()
+	cfg.Security = kvConfig.NewSecurity(opts.sslCA, opts.sslCert, opts.sslKey, []string{})
+	kvConfig.StoreGlobalConfig(cfg)
+
+	client, err := txnkv.NewClient([]string{opts.pdAddr})
+	if err != nil {
+		return fmt.Errorf("failed to create TiFlash client: %w", err)
+	}
+
+	ctx := context.Background()
+	timeout := time.Duration(5*60) * time.Second
+	req := tikvrpc.Request{
+		Type:    tikvrpc.CmdGetTiFlashSystemTable,
+		StoreTp: tikvrpc.TiFlash,
+		Req: &kvrpcpb.TiFlashSystemTableRequest{
+			Sql: opts.flashSQL,
+		},
+	}
+	resp, err := client.KVStore.GetTiKVClient().SendRequest(ctx, opts.flashAddr, &req, timeout)
+	if err != nil {
+		return fmt.Errorf("failed to send request to TiFlash: %w", err)
+	}
+	tiflashResp, ok := resp.Resp.(*kvrpcpb.TiFlashSystemTableResponse)
+	if !ok {
+		return fmt.Errorf("unexpected response type: %T", resp.Resp)
+	}
+	// TODO: Parse the response data to be more user-friendly
+	fmt.Println("resp:", tiflashResp)
 	return nil
 }

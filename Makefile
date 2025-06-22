@@ -19,5 +19,8 @@ FILES     := $$(find . -name "*.go")
 default:
 	$(GOBUILD) -o bin/tiflash-ctl
 
+arm:
+	GOOS=linux GOARCH=arm64 $(GOBUILD) -o bin/tiflash-ctl-arm
+
 test:
 	$(GOTEST) -timeout 30s ./...
