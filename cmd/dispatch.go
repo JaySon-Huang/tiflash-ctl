@@ -2,19 +2,23 @@ package cmd
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/JaySon-Huang/tiflash-ctl/pkg/logutil"
 	"github.com/JaySon-Huang/tiflash-ctl/pkg/options"
 	"github.com/JaySon-Huang/tiflash-ctl/pkg/tidb"
+	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	"github.com/spf13/cobra"
 	kvConfig "github.com/tikv/client-go/v2/config"
 	"github.com/tikv/client-go/v2/tikvrpc"
 	"github.com/tikv/client-go/v2/txnkv"
+	"go.uber.org/zap"
 )
 
 type FetchRegionsOpts struct {
@@ -37,6 +41,15 @@ type ExecSQLCmdOpts struct {
 	sslCert   string
 	sslKey    string
 	flashSQL  string
+}
+
+type CompactCmdOpts struct {
+	pdAddr          string
+	flashAddr       string
+	physicalTableId int64
+	sslCA           string
+	sslCert         string
+	sslKey          string
 }
 
 func newDispatchCmd() *cobra.Command {
@@ -107,7 +120,28 @@ func newDispatchCmd() *cobra.Command {
 		return c
 	}
 
-	cmd.AddCommand(newGetRegionCmd(), newExecCmd(), newExecSQLCmd())
+	newCompactCmd := func() *cobra.Command {
+		var opt CompactCmdOpts
+		c := &cobra.Command{
+			Use:   "compact",
+			Short: "Compact a table in TiFlash",
+			RunE: func(cmd *cobra.Command, args []string) error {
+				if opt.physicalTableId == 0 {
+					return fmt.Errorf("should set the physical table id to compact")
+				}
+				return compactTiFlashTable(opt)
+			},
+		}
+		c.Flags().StringVar(&opt.pdAddr, "pd", "127.0.0.1:2379", "pd address")
+		c.Flags().StringVar(&opt.flashAddr, "flash", "127.0.0.1:3930", "TiFlash address for SQL execution")
+		c.Flags().Int64Var(&opt.physicalTableId, "table_id", 0, "The physical table ID to compact in TiFlash")
+		c.Flags().StringVar(&opt.sslCA, "ca", "", "Path to the CA certificate file for TLS")
+		c.Flags().StringVar(&opt.sslCert, "cert", "", "Path to the client certificate file for TLS")
+		c.Flags().StringVar(&opt.sslKey, "key", "", "Path to the client key file for TLS")
+		return c
+	}
+
+	cmd.AddCommand(newGetRegionCmd(), newExecCmd(), newExecSQLCmd(), newCompactCmd())
 
 	return cmd
 }
@@ -230,5 +264,77 @@ func execTiFlashSQLCmd(opts ExecSQLCmdOpts) error {
 	}
 	// TODO: Parse the response data to be more user-friendly
 	fmt.Println("resp:", tiflashResp)
+	return nil
+}
+
+func compactTiFlashTable(opts CompactCmdOpts) error {
+	cfg := kvConfig.GetGlobalConfig()
+	cfg.Security = kvConfig.NewSecurity(opts.sslCA, opts.sslCert, opts.sslKey, []string{})
+	kvConfig.StoreGlobalConfig(cfg)
+
+	client, err := txnkv.NewClient([]string{opts.pdAddr})
+	if err != nil {
+		return fmt.Errorf("failed to create TiFlash client: %w", err)
+	}
+	ctx := context.Background()
+	timeout := time.Duration(5*60) * time.Second
+	startKey := []byte{} // Empty start key to compact the whole table
+	tableCompactSuccess := false
+	for {
+		req := tikvrpc.Request{
+			Type:    tikvrpc.CmdCompact,
+			StoreTp: tikvrpc.TiFlash,
+			Req:     &kvrpcpb.CompactRequest{StartKey: startKey, PhysicalTableId: opts.physicalTableId},
+		}
+		logutil.BgLogger().Info("Compact TiFlash table",
+			zap.Int64("physical_table_id", opts.physicalTableId),
+			zap.String("store", opts.flashAddr),
+			zap.String("start_key", hex.EncodeToString(startKey)),
+		)
+		response, err := client.KVStore.GetTiKVClient().SendRequest(ctx, opts.flashAddr, &req, timeout)
+		if err != nil {
+			logutil.BgLogger().Error("Failed to send request to TiFlash",
+				zap.Error(err),
+			)
+			break
+		}
+		resp, ok := response.Resp.(*kvrpcpb.CompactResponse)
+		if !ok {
+			logutil.BgLogger().Error("Unexpected response type from TiFlash",
+				zap.String("store", opts.flashAddr),
+			)
+			break
+		}
+		if resp.GetError() != nil {
+			logutil.BgLogger().Error("Compact failed",
+				zap.String("store", opts.flashAddr),
+				zap.String("resp", proto.MarshalTextString(resp)),
+			)
+			break
+		}
+		if !resp.HasRemaining {
+			tableCompactSuccess = true
+			logutil.BgLogger().Info("Compact finished",
+				zap.Int64("physical_table_id", opts.physicalTableId),
+			)
+			break
+		}
+		lastEndKey := resp.GetCompactedEndKey()
+		if len(lastEndKey) == 0 {
+			logutil.BgLogger().Error("Compact failed, internal error, no end key returned",
+				zap.String("store", opts.flashAddr),
+			)
+			break
+		}
+		// then continue to compact the next range
+		startKey = lastEndKey
+		logutil.BgLogger().Info("Next compact range",
+			zap.Int64("physical_table_id", opts.physicalTableId),
+			zap.String("store", opts.flashAddr),
+			zap.String("start_key", hex.EncodeToString(startKey)),
+		)
+	}
+
+	logutil.BgLogger().Info("Compact command finished", zap.Int64("physical_table_id", opts.physicalTableId), zap.Bool("success", tableCompactSuccess), zap.String("key", string(startKey)))
 	return nil
 }
