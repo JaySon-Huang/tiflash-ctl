@@ -47,6 +47,7 @@ type CompactCmdOpts struct {
 	pdAddr          string
 	flashAddr       string
 	physicalTableId int64
+	startKey        string
 	sslCA           string
 	sslCert         string
 	sslKey          string
@@ -135,6 +136,7 @@ func newDispatchCmd() *cobra.Command {
 		c.Flags().StringVar(&opt.pdAddr, "pd", "127.0.0.1:2379", "pd address")
 		c.Flags().StringVar(&opt.flashAddr, "flash", "127.0.0.1:3930", "TiFlash address for SQL execution")
 		c.Flags().Int64Var(&opt.physicalTableId, "table_id", 0, "The physical table ID to compact in TiFlash")
+		c.Flags().StringVar(&opt.startKey, "start_key", "", "The start key for compacting the table, in hex format")
 		c.Flags().StringVar(&opt.sslCA, "ca", "", "Path to the CA certificate file for TLS")
 		c.Flags().StringVar(&opt.sslCert, "cert", "", "Path to the client certificate file for TLS")
 		c.Flags().StringVar(&opt.sslKey, "key", "", "Path to the client key file for TLS")
@@ -278,7 +280,17 @@ func compactTiFlashTable(opts CompactCmdOpts) error {
 	}
 	ctx := context.Background()
 	timeout := time.Duration(5*60) * time.Second
-	startKey := []byte{} // Empty start key to compact the whole table
+
+	// Empty start key to compact the whole table
+	var startKey []byte
+	if len(opts.startKey) > 0 {
+		var err error
+		startKey, err = hex.DecodeString(opts.startKey)
+		if err != nil {
+			return fmt.Errorf("failed to decode start key: %w", err)
+		}
+	}
+
 	tableCompactSuccess := false
 	for {
 		req := tikvrpc.Request{
@@ -335,6 +347,7 @@ func compactTiFlashTable(opts CompactCmdOpts) error {
 		)
 	}
 
-	logutil.BgLogger().Info("Compact command finished", zap.Int64("physical_table_id", opts.physicalTableId), zap.Bool("success", tableCompactSuccess), zap.String("key", string(startKey)))
+	logutil.BgLogger().Info("Compact command finished", //
+		zap.Int64("physical_table_id", opts.physicalTableId), zap.Bool("success", tableCompactSuccess), zap.String("key", hex.EncodeToString(startKey)))
 	return nil
 }
