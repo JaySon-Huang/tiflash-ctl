@@ -2,12 +2,10 @@ package main
 
 import (
 	"github.com/JaySon-Huang/tiflash-ctl/cmd"
-	"go.uber.org/zap"
+	"github.com/JaySon-Huang/tiflash-ctl/pkg/logutil"
 )
 
 func main() {
-	logger, _ := zap.NewProduction()
-	defer logger.Sync()
-
+	defer logutil.BgLogger().Sync()
 	cmd.Execute()
 }
