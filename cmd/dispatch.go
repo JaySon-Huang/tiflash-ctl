@@ -40,10 +40,11 @@ type ExecCmdOpts struct {
 type ExecSQLCmdOpts struct {
 	pdAddr    string
 	flashAddr string
+	flashSQL  string
+	decimal   uint32
 	sslCA     string
 	sslCert   string
 	sslKey    string
-	flashSQL  string
 }
 
 type CompactCmdOpts struct {
@@ -118,6 +119,7 @@ func newDispatchCmd() *cobra.Command {
 		c.Flags().StringVar(&opt.pdAddr, "pd", "127.0.0.1:2379", "pd address")
 		c.Flags().StringVar(&opt.flashAddr, "flash", "127.0.0.1:3930", "TiFlash address for SQL execution")
 		c.Flags().StringVar(&opt.flashSQL, "sql", "", "The SQL command to execute in TiFlash")
+		c.Flags().Uint32Var(&opt.decimal, "decimal", 3, "The decimal precision for floating point values in the output")
 		c.Flags().StringVar(&opt.sslCA, "ca", "", "Path to the CA certificate file for TLS")
 		c.Flags().StringVar(&opt.sslCert, "cert", "", "Path to the client certificate file for TLS")
 		c.Flags().StringVar(&opt.sslKey, "key", "", "Path to the client key file for TLS")
@@ -274,15 +276,19 @@ func execTiFlashSQLCmd(opts ExecSQLCmdOpts) error {
 	if err != nil {
 		return fmt.Errorf("failed to unmarshal TiFlash response data: %w", err)
 	}
+
 	/// Output as csv format, output to console
 	w := csv.NewWriter(os.Stdout)
+
 	// header
 	header := make([]string, len(result.Meta))
 	for i, col := range result.Meta {
 		header[i] = col.Name
 	}
 	w.Write(header)
+
 	// rows
+	floatFormat := fmt.Sprintf("%%.%df", opts.decimal)
 	for _, rowFields := range result.Data {
 		if len(rowFields) == 0 {
 			continue
@@ -295,7 +301,7 @@ func execTiFlashSQLCmd(opts ExecSQLCmdOpts) error {
 			}
 			switch result.Meta[colIdx].Type {
 			case "Float64", "Float32":
-				valStr := fmt.Sprintf("%.3f", fieldVal)
+				valStr := fmt.Sprintf(floatFormat, fieldVal)
 				outputRow[colIdx] = valStr
 			case "String", "Int64", "UInt64":
 				valStr := fmt.Sprintf("%s", fieldVal)
