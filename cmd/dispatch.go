@@ -293,8 +293,18 @@ func execTiFlashSQLCmd(opts ExecSQLCmdOpts) error {
 				outputRow[colIdx] = "NULL"
 				continue
 			}
-			valStr := fmt.Sprintf("%s", fieldVal)
-			outputRow[colIdx] = valStr
+			switch result.Meta[colIdx].Type {
+			case "Float64", "Float32":
+				valStr := fmt.Sprintf("%.3f", fieldVal)
+				outputRow[colIdx] = valStr
+			case "String", "Int64", "UInt64":
+				valStr := fmt.Sprintf("%s", fieldVal)
+				outputRow[colIdx] = valStr
+			default:
+				// for other types, just convert to string
+				valStr := fmt.Sprintf("%s", fieldVal)
+				outputRow[colIdx] = valStr
+			}
 		}
 
 		if err = w.Write(outputRow); err != nil {
