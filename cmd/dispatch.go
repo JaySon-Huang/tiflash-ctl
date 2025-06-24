@@ -2,11 +2,13 @@ package cmd
 
 import (
 	"context"
+	"encoding/csv"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -272,14 +274,15 @@ func execTiFlashSQLCmd(opts ExecSQLCmdOpts) error {
 	if err != nil {
 		return fmt.Errorf("failed to unmarshal TiFlash response data: %w", err)
 	}
-	/// Output as csv format
+	/// Output as csv format, output to console
+	w := csv.NewWriter(os.Stdout)
 	// header
 	header := make([]string, len(result.Meta))
 	for i, col := range result.Meta {
 		header[i] = col.Name
 	}
+	w.Write(header)
 	// rows
-	outputRows := make([][]string, 0, len(result.Data))
 	for _, rowFields := range result.Data {
 		if len(rowFields) == 0 {
 			continue
@@ -290,17 +293,16 @@ func execTiFlashSQLCmd(opts ExecSQLCmdOpts) error {
 				outputRow[colIdx] = "NULL"
 				continue
 			}
-			valStr := fmt.Sprintf("\"%s\"", fieldVal)
+			valStr := fmt.Sprintf("%s", fieldVal)
 			outputRow[colIdx] = valStr
 		}
-		outputRows = append(outputRows, outputRow)
+
+		if err = w.Write(outputRow); err != nil {
+			return fmt.Errorf("failed to write row to CSV: %w", err)
+		}
 	}
-	// output to console
-	fmt.Println(strings.Join(header, ","))
-	for _, row := range outputRows {
-		fmt.Println(strings.Join(row, ","))
-	}
-	return nil
+	w.Flush()
+	return w.Error()
 }
 
 func compactTiFlashTable(opts CompactCmdOpts) error {
