@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -264,8 +265,41 @@ func execTiFlashSQLCmd(opts ExecSQLCmdOpts) error {
 	if !ok {
 		return fmt.Errorf("unexpected response type: %T", resp.Resp)
 	}
-	// TODO: Parse the response data to be more user-friendly
-	fmt.Println("resp:", tiflashResp)
+	logutil.BgLogger().Debug("response", zap.String("response", tiflashResp.String()))
+	// Parse the response data to be more user-friendly
+	var result tiFlashSQLExecuteResponse
+	err = json.Unmarshal(tiflashResp.Data, &result)
+	if err != nil {
+		return fmt.Errorf("failed to unmarshal TiFlash response data: %w", err)
+	}
+	/// Output as csv format
+	// header
+	header := make([]string, len(result.Meta))
+	for i, col := range result.Meta {
+		header[i] = col.Name
+	}
+	// rows
+	outputRows := make([][]string, 0, len(result.Data))
+	for _, rowFields := range result.Data {
+		if len(rowFields) == 0 {
+			continue
+		}
+		outputRow := make([]string, len(rowFields))
+		for colIdx, fieldVal := range rowFields {
+			if fieldVal == nil {
+				outputRow[colIdx] = "NULL"
+				continue
+			}
+			valStr := fmt.Sprintf("\"%s\"", fieldVal)
+			outputRow[colIdx] = valStr
+		}
+		outputRows = append(outputRows, outputRow)
+	}
+	// output to console
+	fmt.Println(strings.Join(header, ","))
+	for _, row := range outputRows {
+		fmt.Println(strings.Join(row, ","))
+	}
 	return nil
 }
 
